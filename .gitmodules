@@ -1,0 +1,3 @@
+[submodule "slurm-utils"]
+	path = slurm-utils
+	url = https://github.com/birc-aeh/slurm-utils.git
