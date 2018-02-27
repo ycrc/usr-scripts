@@ -77,7 +77,7 @@ def parse_quota_line(line):
     data = [int(split[10])/1024/1024, int(split[11])/1024/1024,
             int(split[15]), int(split[16])]    
 
-    output = '{0:14}{1:6}{2:10}{3:10}{4:14,}{5:14,}'.format(fileset, quota_type, data[0], data[1],
+    output = '{0:14}{1:6}{2:12}{3:12}{4:14,}{5:14,}'.format(fileset, quota_type, data[0], data[1],
                                                             data[2], data[3])
 
     return fileset, output
@@ -122,7 +122,7 @@ def fetch_quota_data(device, filesets, user):
 
     # add user quotas for LS home directories
     if cluster in ['farnam', 'ruddle']:
-        query = '{0} -eu $(id -u) -Y --block-size auto {1}'.format(quota_script, device)
+        query = '{0} -eu $(id -u) -Y --block-size auto {1} | grep home'.format(quota_script, device)
         result += subprocess.check_output([query], shell=True)
 
     for quota in result.split('\n'):
@@ -173,14 +173,15 @@ if (__name__ == '__main__'):
     header += "and/or contact us for help at hpc@yale.edu\n\n"
     header += '## Usage Details (as of {})\n'.format(timestamp)
     header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', '  File Count')
-    header += '{0:14}{1:6}{2:10}{3:14}'.format('----------', '-----', '----------', '  ------------')
+    header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
     print(usage_output)
 
     header = '\n## Quota Summary (as of right now)\n'
-    header += '{0:14}{1:6}{2:10}{3:10}{4:14}{5:14}\n'.format('Fileset', 'Type', 'Usage (GB)', 'Quota (GB)', 'File Count', 'File Limit')
-    header += '{0:14}{1:6}{2:10}{3:10}{4:14}{5:14}'.format('-------', '----', '---------', '---------', '--------', '-------')
+    header += '{0:14}{1:6}{2:12}{3:12}{4:14}{5:14}\n'.format('Fileset', 'Type', ' Usage (GB)', ' Quota (GB)', ' File Count', ' File Limit')
+    header += '{0:14}{1:6}{2:12}{3:12}{4:14}{5:14}'.format('-'*13, '-'*6, ' '+'-'*11, ' '+'-'*11, ' '+'-'*13, ' '+'-'*13)
 
     print(header)
     print(quota_output)
+
