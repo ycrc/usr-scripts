@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+import getpass
+import socket
+
+
+def get_cluster():
+
+    name = socket.gethostname()
+
+    host = name.split('.')
+    if (len(host) < 2):
+        idx = 0
+    else:
+        idx = 1
+    return host[idx]
+
+
+def get_group_members(this_user):
+
+    # group_members = ldap_query
+    group_members = ['rdb9', 'kln26', 'jsi3']
+
+    return group_members
+
+
+def read_quota_file(filename, this_user):
+
+    quota_data = {}
+    user_filesets = set()
+
+    with open(filename, 'r') as f:
+        header = f.readline()
+        for line in f:
+            split = line.split(':')
+            if split[7] != 'USR':
+                continue
+
+            user = split[9]
+            fileset = split[24]
+            if fileset == 'root' or user == 'root':
+                continue
+
+            if fileset not in quota_data.keys():
+                quota_data[fileset] = {}
+            quota_data[fileset][user] = [int(split[10])/1024/1024,
+                                         int(split[15])]
+
+            if user == this_user:
+                user_filesets.add(fileset)
+
+    return quota_data, list(user_filesets)
+
+
+def generate_output(this_user, filesets, group_members, cluster, data):
+
+    output = ['', '', '']
+
+    for fileset in sorted(filesets):
+        section = []
+
+        if 'pi' in fileset:
+            for user in sorted(data[fileset].keys()):
+                section.append('{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
+                                                                 data[fileset][user][0],
+                                                                 data[fileset][user][1]))
+            output.append('\n'.join(section))
+        else:
+            for group_member in sorted(group_members):
+                section.append('{0:14}{1:6}{2:10}{3:14,}'.format(fileset, group_member,
+                                                                 data[fileset][group_member][0],
+                                                                 data[fileset][group_member][1]))
+            if 'home' in fileset:
+                output[0] = '\n'.join(section)
+            elif 'scratch.' in fileset or 'project' in fileset:
+                output[1] = '\n'.join(section)
+            elif 'scratch60' in fileset:
+                output[2] = '\n'.join(section)
+
+    return '\n----\n'.join(output)
+
+
+if (__name__ == '__main__'):
+
+    user = getpass.getuser()
+
+    cluster = get_cluster()
+
+    filesystem = {'farnam': '/gpfs/ysm',
+                  'grace': '/gpfs/loomis',
+                  }
+
+    # quota_filename = filesystem[cluster] + '/' + .mmrepquota/current
+    quota_filename = '20180226'
+
+    data, filesets = read_quota_file(quota_filename, user)
+
+    group_members = get_group_members(user)
+
+    output = generate_output(user, filesets, group_members, cluster, data)
+
+    header = '## Usage Details\n'
+    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', '  File Count')
+    header += '{0:14}{1:6}{2:10}{3:14}'.format('----------', '-----', '----------', '  ------------')
+
+    print(header)
+    print(output)
+
+    header = '\n## Quota Summary\n'
+
+    print(header)
