@@ -1,7 +1,10 @@
 #!/usr/bin/env python
 
+import pwd
 import getpass
 import socket
+
+import subprocess
 
 
 def get_cluster():
@@ -18,10 +21,20 @@ def get_cluster():
 
 def get_group_members(this_user):
 
-    # group_members = ldap_query
-    group_members = ['rdb9', 'kln26', 'jsi3']
+    # LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://mgt1.farnam.hpc.yale.internal  -b o=hpc.yale.edu -D cn=client,o=hpc.yale.edu -w hpc@Client 'cn=*Evan*'
 
-    return group_members
+    gid = pwd.getpwnam(this_user).pw_gid
+
+    with open('/etc/yalehpc', 'r') as f:
+        f.readline()
+        mgt = f.readline().split('=')[1].replace('"', '').rstrip()
+
+    query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={1}' uid | grep '^uid'".format(mgt, gid)
+    result = subprocess.check_output([query], shell=True)
+
+    group_members = result.replace('uid: ','').split('\n')
+
+    return group_members[:-1]
 
 
 def read_quota_file(filename, this_user):
@@ -67,6 +80,8 @@ def generate_output(this_user, filesets, group_members, cluster, data):
             output.append('\n'.join(section))
         else:
             for group_member in sorted(group_members):
+                if group_member not in data[fileset].keys():
+                    continue
                 section.append('{0:14}{1:6}{2:10}{3:14,}'.format(fileset, group_member,
                                                                  data[fileset][group_member][0],
                                                                  data[fileset][group_member][1]))
@@ -90,8 +105,7 @@ if (__name__ == '__main__'):
                   'grace': '/gpfs/loomis',
                   }
 
-    # quota_filename = filesystem[cluster] + '/' + .mmrepquota/current
-    quota_filename = '20180226'
+    quota_filename = filesystem[cluster] + '/.mmrepquota/current'
 
     data, filesets = read_quota_file(quota_filename, user)
 
