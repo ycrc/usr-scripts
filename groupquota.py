@@ -221,7 +221,7 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
     header += "for help at hpc@yale.edu\n\n"
 
     header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
-    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', '  File Count')
+    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', ' File Count')
     header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
@@ -233,9 +233,9 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
         time = timestamp
 
     header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}\n'.format('Fileset', 'Type', ' Usage (GB)',
+    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}\n'.format('Fileset', 'Type', 'Usage (GB)',
                                                              ' Quota (GB)', ' File Count', ' File Limit')
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}'.format('-'*13, '-'*7, ' '+'-'*11,
+    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}'.format('-'*13, '-'*7, '-'*12,
                                                            ' '+'-'*11, ' '+'-'*13, ' '+'-'*13)
 
     print(header)
