@@ -256,9 +256,11 @@ if (__name__ == '__main__'):
     cluster = get_cluster()
 
     filesystem = {'farnam': '/gpfs/ysm',
+		  'ruddle': '/gpfs/ycga',
                   'grace': '/gpfs/loomis',
                   }
-    device = {'farnam': 'ysm-gpfs'}
+    device = {'farnam': 'ysm-gpfs',
+	      'ruddle': 'ycga-gpfs'}
 
     # usage details
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
