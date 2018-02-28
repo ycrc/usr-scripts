@@ -1,11 +1,13 @@
 #!/usr/bin/env python
 
 import pwd
+import grp
 import getpass
 import socket
 
 import subprocess
 import os
+import sys
 import time
 
 
@@ -21,15 +23,14 @@ def get_cluster():
     return host[idx]
 
 
-def get_group_members(this_user):
-
-    gid = pwd.getpwnam(this_user).pw_gid
+def get_group_members(this_group_id):
 
     with open('/etc/yalehpc', 'r') as f:
         f.readline()
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
-    query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={1}' uid | grep '^uid'".format(mgt, gid)
+    query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
+    query += " cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={0}' uid | grep '^uid'".format(this_group_id)
     result = subprocess.check_output([query], shell=True)
 
     group_members = result.replace('uid: ', '').split('\n')
@@ -37,7 +38,44 @@ def get_group_members(this_user):
     return group_members[:-1]
 
 
-def read_usage_file(filename, this_user):
+def parse_quota_line(line, usage):
+
+    split = line.split(':')
+
+    quota_type = split[7]
+    if quota_type == 'FILESET':
+        fileset = split[9]
+        name = ''
+    else:
+        name = split[9]
+        fileset = split[-2]
+
+    data = [int(split[10])/1024/1024, int(split[11])/1024/1024,
+            int(split[15]), int(split[16])]
+
+    if usage:
+        output = format_for_usage(fileset, name, data)
+        return fileset, name, output
+
+    else:
+        output = format_for_summary(fileset, quota_type, data)
+        return fileset, name, output
+
+
+def format_for_usage(fileset, user, data):
+
+    return '{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
+                                             data[0], data[2])
+
+
+def format_for_summary(fileset, quota_type, data):
+
+    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,}'.format(fileset, quota_type,
+                                                          data[0], data[1],
+                                                          data[2], data[3])
+
+
+def read_usage_file(filename, this_user, group_members):
 
     quota_data = {}
     user_filesets = set()
@@ -45,46 +83,23 @@ def read_usage_file(filename, this_user):
     with open(filename, 'r') as f:
         f.readline()
         for line in f:
-            split = line.split(':')
-            if split[7] != 'USR':
+
+            if 'USR' not in line or 'root' in line:
                 continue
 
-            user = split[9]
-            fileset = split[24]
-            if fileset == 'root' or user == 'root':
-                continue
+            fileset, user, output = parse_quota_line(line, True)
 
             if fileset not in quota_data.keys():
                 quota_data[fileset] = {}
-            quota_data[fileset][user] = [int(split[10])/1024/1024,
-                                         int(split[15])]
+            quota_data[fileset][user] = output
 
-            if user == this_user:
+            if user == this_user or (this_user is None and user in group_members):
                 user_filesets.add(fileset)
 
     return quota_data, list(user_filesets)
 
 
-def parse_quota_line(line):
-
-    split = line.split(':')
-
-    quota_type = split[7]
-    if quota_type == 'FILESET':
-        fileset = split[9]
-    else:
-        fileset = split[22]
-
-    data = [int(split[10])/1024/1024, int(split[11])/1024/1024,
-            int(split[15]), int(split[16])]
-
-    output = '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,}'.format(fileset, quota_type, data[0], data[1],
-                                                            data[2], data[3])
-
-    return fileset, output
-
-
-def generate_usage_output(this_user, filesets, group_members, cluster, data):
+def compile_usage_output(filesets, group_members, cluster, data):
 
     output = ['', '', '']
 
@@ -93,17 +108,16 @@ def generate_usage_output(this_user, filesets, group_members, cluster, data):
 
         if 'pi' in fileset:
             for user in sorted(data[fileset].keys()):
-                section.append('{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
-                                                                 data[fileset][user][0],
-                                                                 data[fileset][user][1]))
+                section.append(data[fileset][user])
             output.append('\n'.join(section))
+
         else:
             for group_member in sorted(group_members):
                 if group_member not in data[fileset].keys():
-                    continue
-                section.append('{0:14}{1:6}{2:10}{3:14,}'.format(fileset, group_member,
-                                                                 data[fileset][group_member][0],
-                                                                 data[fileset][group_member][1]))
+                    section.append(format_for_usage(fileset, group_member, [0, 0, 0, 0]))
+                else:
+                    section.append(data[fileset][group_member])
+
             if 'home' in fileset:
                 output[0] = '\n'.join(section)
             elif 'scratch.' in fileset or 'project' in fileset:
@@ -114,23 +128,23 @@ def generate_usage_output(this_user, filesets, group_members, cluster, data):
     return '\n----\n'.join(output)
 
 
-def fetch_quota_data(device, filesets, user):
+def live_quota_data(device, filesets, user, group):
 
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
     output = ['', '', '']
 
-    query = '{0} -eg $(id -g) -Y --block-size auto {1}'.format(quota_script, device)
+    query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
     result = subprocess.check_output([query], shell=True)
 
     # add user quotas for LS home directories
     if cluster in ['farnam', 'ruddle']:
-        query = '{0} -eu $(id -u) -Y --block-size auto {1} | grep home'.format(quota_script, device)
+        query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
         result += subprocess.check_output([query], shell=True)
 
     for quota in result.split('\n'):
         if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
             continue
-        fileset, section = parse_quota_line(quota)
+        fileset, _, section = parse_quota_line(quota, False)
 
         if 'home' in fileset:
             output[0] = section
@@ -145,14 +159,57 @@ def fetch_quota_data(device, filesets, user):
         if 'pi' in fileset:
             query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
             pi_quota = subprocess.check_output([query], shell=True)
-            output.append(parse_quota_line(pi_quota.split('\n')[1])[1])
+            output.append(parse_quota_line(pi_quota.split('\n')[1], False)[-1])
 
     return '\n'.join(output)
 
 
+def cached_quota_data(filename, filesets, group):
+
+    output = ['', '']
+
+    with open(filename, 'r') as f:
+        f.readline()
+        for line in f:
+
+            if 'USR' in line or 'root' in line:
+                continue
+
+            fileset, name, section = parse_quota_line(line, False)
+
+            if fileset in filesets:
+                if name == group:
+                    if 'scratch.' in fileset or 'project' in fileset:
+                        output[0] = section
+
+                    elif 'scratch60' in fileset:
+                        output[1] = section
+
+                if 'pi' in fileset and 'FILESET' in section:
+                    output.append(section)
+
+        return '\n'.join(output)
+
+
 if (__name__ == '__main__'):
 
-    user = getpass.getuser()
+    if len(sys.argv) == 3:
+        if sys.argv[1] == '-u':
+            user = sys.argv[2]
+        elif sys.argv[1] == '-g':
+            user = None
+            group_id = grp.getgrnam(sys.argv[2]).gr_gid
+        else:
+            sys.exit("Unknown arguement. Use -u <user>, -g <group> or no argument for current user")
+        is_me = False
+
+    else:
+        user = getpass.getuser()
+        is_me = True
+
+    if user is not None:
+        group_id = pwd.getpwnam(user).pw_gid
+    group_name = grp.getgrgid(group_id).gr_name
 
     cluster = get_cluster()
 
@@ -164,25 +221,33 @@ if (__name__ == '__main__'):
     # usage details
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
     timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
-    group_members = get_group_members(user)
+    group_members = get_group_members(group_id)
 
-    usage_data, filesets = read_usage_file(usage_filename, user)
-    usage_output = generate_usage_output(user, filesets, group_members, cluster, usage_data)
+    usage_data, filesets = read_usage_file(usage_filename, user, group_members)
+    usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
 
     # quota summary
-    quota_output = fetch_quota_data(device[cluster], filesets, user)
+    if is_me:
+        quota_output = live_quota_data(device[cluster], filesets, user, group_id)
+    else:
+        quota_output = cached_quota_data(usage_filename, filesets, group_name)
 
     header = "This script shows information about your quotas on the current gpfs filesystem.\n"
     header += "If you plan to poll this sort of information extensively, please use alternate means\n"
     header += "and/or contact us for help at hpc@yale.edu\n\n"
-    header += '## Usage Details (as of {})\n'.format(timestamp)
+    header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
     header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', '  File Count')
     header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
     print(usage_output)
 
-    header = '\n## Quota Summary (as of right now)\n'
+    if is_me:
+        time = 'right now'
+    else:
+        time = timestamp
+
+    header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
     header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}\n'.format('Fileset', 'Type', ' Usage (GB)',
                                                              ' Quota (GB)', ' File Count', ' File Limit')
     header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}'.format('-'*13, '-'*7, ' '+'-'*11,
