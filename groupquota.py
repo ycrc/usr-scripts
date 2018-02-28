@@ -17,7 +17,10 @@ def get_user_and_group():
             user = sys.argv[2]
         elif sys.argv[1] == '-g':
             user = None
-            group_id = grp.getgrnam(sys.argv[2]).gr_gid
+            try:
+                group_id = grp.getgrnam(sys.argv[2]).gr_gid
+            except:
+                sys.exit('Unknown group: '+sys.argv[2])
         else:
             sys.exit("Unknown argument. Use -u <user>, -g <group> or no argument for current user")
         is_me = False
@@ -27,7 +30,10 @@ def get_user_and_group():
         is_me = True
 
     if user is not None:
-        group_id = pwd.getpwnam(user).pw_gid
+        try:
+            group_id = pwd.getpwnam(user).pw_gid
+        except:
+            sys.exit('Unknown user: '+user)
 
     return user, group_id, is_me
 
