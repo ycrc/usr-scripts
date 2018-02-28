@@ -1,41 +1,62 @@
 #!/usr/bin/env python
 
+import os
+import sys
+import subprocess
+import time
+
 import pwd
 import grp
 import getpass
-import socket
 
-import subprocess
-import os
-import sys
-import time
+
+def get_user_and_group():
+
+    if len(sys.argv) == 3:
+        if sys.argv[1] == '-u':
+            user = sys.argv[2]
+        elif sys.argv[1] == '-g':
+            user = None
+            group_id = grp.getgrnam(sys.argv[2]).gr_gid
+        else:
+            sys.exit("Unknown argument. Use -u <user>, -g <group> or no argument for current user")
+        is_me = False
+
+    else:
+        user = getpass.getuser()
+        is_me = True
+
+    if user is not None:
+        group_id = pwd.getpwnam(user).pw_gid
+
+    return user, group_id, is_me
 
 
 def get_cluster():
 
-    name = socket.gethostname()
+    with open('/etc/yalehpc', 'r') as f:
+        cluster = f.readline().split('=')[1].replace('"', '').rstrip()
 
-    host = name.split('.')
-    if (len(host) < 2):
-        idx = 0
-    else:
-        idx = 1
-    return host[idx]
+    return cluster
 
 
-def get_group_members(this_group_id):
+def get_group_members(group_id):
 
     with open('/etc/yalehpc', 'r') as f:
         f.readline()
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
     query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
-    query += " cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={0}' uid | grep '^uid'".format(this_group_id)
+    query += " cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={0}' uid | grep '^uid'".format(group_id)
     result = subprocess.check_output([query], shell=True)
 
     group_members = result.replace('uid: ', '').split('\n')
 
-    return group_members[:-1]
+    # remove blank line
+    if group_members[-1] == '':
+        group_members.pop(-1)
+
+    return group_members
 
 
 def parse_quota_line(line, usage):
@@ -120,8 +141,10 @@ def compile_usage_output(filesets, group_members, cluster, data):
 
             if 'home' in fileset:
                 output[0] = '\n'.join(section)
+
             elif 'scratch.' in fileset or 'project' in fileset:
                 output[1] = '\n'.join(section)
+
             elif 'scratch60' in fileset:
                 output[2] = '\n'.join(section)
 
@@ -185,56 +208,18 @@ def cached_quota_data(filename, filesets, group):
                     elif 'scratch60' in fileset:
                         output[1] = section
 
-                if 'pi' in fileset and 'FILESET' in section:
+                elif 'pi' in fileset and 'FILESET' in section:
                     output.append(section)
 
         return '\n'.join(output)
 
 
-if (__name__ == '__main__'):
-
-    if len(sys.argv) == 3:
-        if sys.argv[1] == '-u':
-            user = sys.argv[2]
-        elif sys.argv[1] == '-g':
-            user = None
-            group_id = grp.getgrnam(sys.argv[2]).gr_gid
-        else:
-            sys.exit("Unknown arguement. Use -u <user>, -g <group> or no argument for current user")
-        is_me = False
-
-    else:
-        user = getpass.getuser()
-        is_me = True
-
-    if user is not None:
-        group_id = pwd.getpwnam(user).pw_gid
-    group_name = grp.getgrgid(group_id).gr_name
-
-    cluster = get_cluster()
-
-    filesystem = {'farnam': '/gpfs/ysm',
-                  'grace': '/gpfs/loomis',
-                  }
-    device = {'farnam': 'ysm-gpfs'}
-
-    # usage details
-    usage_filename = filesystem[cluster] + '/.mmrepquota/current'
-    timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
-    group_members = get_group_members(group_id)
-
-    usage_data, filesets = read_usage_file(usage_filename, user, group_members)
-    usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
-
-    # quota summary
-    if is_me:
-        quota_output = live_quota_data(device[cluster], filesets, user, group_id)
-    else:
-        quota_output = cached_quota_data(usage_filename, filesets, group_name)
+def print_output(usage_output, quota_output, group_name, timestamp, is_me):
 
     header = "This script shows information about your quotas on the current gpfs filesystem.\n"
-    header += "If you plan to poll this sort of information extensively, please use alternate means\n"
-    header += "and/or contact us for help at hpc@yale.edu\n\n"
+    header += "If you plan to poll this sort of information extensively, please contact us\n"
+    header += "for help at hpc@yale.edu\n\n"
+
     header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
     header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', '  File Count')
     header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
@@ -255,3 +240,32 @@ if (__name__ == '__main__'):
 
     print(header)
     print(quota_output)
+
+
+if (__name__ == '__main__'):
+
+    user, group_id, is_me = get_user_and_group()
+    group_name = grp.getgrgid(group_id).gr_name
+
+    cluster = get_cluster()
+
+    filesystem = {'farnam': '/gpfs/ysm',
+                  'grace': '/gpfs/loomis',
+                  }
+    device = {'farnam': 'ysm-gpfs'}
+
+    # usage details
+    usage_filename = filesystem[cluster] + '/.mmrepquota/current'
+    timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
+
+    group_members = get_group_members(group_id)
+    usage_data, filesets = read_usage_file(usage_filename, user, group_members)
+    usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
+
+    # quota summary
+    if is_me:
+        quota_output = live_quota_data(device[cluster], filesets, user, group_id)
+    else:
+        quota_output = cached_quota_data(usage_filename, filesets, group_name)
+
+    print_output(usage_output, quota_output, group_name, timestamp, is_me)
