@@ -125,7 +125,7 @@ def is_pi_fileset(fileset, section=None):
         return True
 
 
-def validate_filesets(filesets, cluster):
+def validate_filesets(filesets, cluster, group, all_filesets):
 
     if cluster == 'milgram':
         if 'scratch' not in filesets:
@@ -136,6 +136,10 @@ def validate_filesets(filesets, cluster):
     if cluster in ['farmam', 'ruddle', 'grace']:
         if 'scratch60' not in filesets:
             filesets.append('scratch60')
+
+    for fileset in all_filesets:
+        if group in fileset and fileset not in filesets:
+            filesets.append(fileset)
 
 
 def format_for_usage(fileset, user, data):
@@ -155,6 +159,7 @@ def read_usage_file(filename, this_user, group_members):
 
     quota_data = {}
     user_filesets = set()
+    all_filesets = set()
 
     with open(filename, 'r') as f:
         f.readline()
@@ -172,7 +177,9 @@ def read_usage_file(filename, this_user, group_members):
             if user == this_user or (this_user is None and user in group_members):
                 user_filesets.add(fileset)
 
-    return quota_data, list(user_filesets)
+            all_filesets.add(fileset)
+
+    return quota_data, list(user_filesets), list(all_filesets)
 
 
 def compile_usage_output(filesets, group_members, cluster, data):
@@ -310,8 +317,8 @@ if (__name__ == '__main__'):
     timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
 
     group_members = get_group_members(group_id)
-    usage_data, filesets = read_usage_file(usage_filename, user, group_members)
-    validate_filesets(filesets, cluster)
+    usage_data, filesets, all_filesets = read_usage_file(usage_filename, user, group_members)
+    validate_filesets(filesets, cluster, group_name, all_filesets)
     usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
 
     # quota summary
