@@ -91,10 +91,17 @@ def parse_quota_line(line, usage):
 
 def place_output(output, section, cluster, fileset):
     if 'home' in fileset:
-        output[0] = section
+        if (('omega' in fileset and cluster != 'omega') or 
+            ('grace' in fileset and cluster != 'grace')):
+                pass
+        else:
+            output[0] = section
 
     elif 'scratch.' in fileset or 'project' in fileset:
-        output[1] = section
+        if 'omega' in fileset and cluster != 'omega':
+            pass
+        else:
+            output[1] = section
 
     # scratch60 or scratch on Milgram
     elif 'scratch' in fileset:
@@ -229,7 +236,10 @@ def live_quota_data(device, filesets, user, group):
 
 def cached_quota_data(filename, filesets, group):
 
-    output = ['', '']
+    if cluster == 'milgram':
+        output = ['', '']
+    else:
+        output = ['', '', '']
 
     with open(filename, 'r') as f:
         f.readline()
@@ -286,13 +296,14 @@ if (__name__ == '__main__'):
     cluster = get_cluster()
 
     filesystem = {'farnam': '/gpfs/ysm',
-		  'ruddle': '/gpfs/ycga',
+	        	  'ruddle': '/gpfs/ycga',
                   'grace': '/gpfs/loomis',
-		  'milgram': '/gpfs/milgram',
+		          'milgram': '/gpfs/milgram',
                   }
     device = {'farnam': 'ysm-gpfs',
-	      'ruddle': 'ycga-gpfs',
-	      'milgram': 'milgram'}
+              'ruddle': 'ycga-gpfs',
+              'milgram': 'milgram',
+              'grace': 'loomis'}
 
     # usage details
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
