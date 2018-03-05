@@ -126,14 +126,57 @@ def read_usage_file(filename, this_user, group_members):
     return quota_data, list(user_filesets)
 
 
+def place_output(output, section, cluster, fileset):
+    if 'home' in fileset:
+        output[0] = section
+
+    elif 'scratch.' in fileset or 'project' in fileset:
+        output[1] = section
+
+    # scratch60 or scratch on Milgram
+    elif 'scratch' in fileset:
+        if cluster == 'milgram':
+            output[1] = section
+        else:
+            output[2] = section
+
+ 
+def is_pi_fileset(fileset, section=None):
+    if section is not None and 'FILESET' not in section:
+        return False
+
+    if 'pi' in fileset:
+            return True
+    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset:
+        return False
+    elif 'apps' in fileset:
+        return False
+    else:
+        return True
+
+def validate_filesets(filesets, cluster):
+
+    if cluster == 'milgram':
+        if 'scratch' not in filesets:
+            filesets.append('scratch')
+    if cluster in ['farnam', 'ruddle']:
+        if 'project' not in filesets:
+            filesets.append('project')
+    if cluster in ['farmam', 'ruddle', 'grace']:
+        if 'scratch60' not in filesets:
+            filesets.append('scratch60')
+
 def compile_usage_output(filesets, group_members, cluster, data):
 
-    output = ['', '', '']
+    if cluster == 'milgram':
+        output = ['', '']
+    else:
+        output = ['', '', '']
 
     for fileset in sorted(filesets):
         section = []
 
-        if 'pi' in fileset:
+        if is_pi_fileset(fileset): 
             for user in sorted(data[fileset].keys()):
                 section.append(data[fileset][user])
             output.append('\n'.join(section))
@@ -145,14 +188,7 @@ def compile_usage_output(filesets, group_members, cluster, data):
                 else:
                     section.append(data[fileset][group_member])
 
-            if 'home' in fileset:
-                output[0] = '\n'.join(section)
-
-            elif 'scratch.' in fileset or 'project' in fileset:
-                output[1] = '\n'.join(section)
-
-            elif 'scratch60' in fileset:
-                output[2] = '\n'.join(section)
+            place_output(output, '\n'.join(section), cluster, fileset)
 
     return '\n----\n'.join(output)
 
@@ -160,7 +196,10 @@ def compile_usage_output(filesets, group_members, cluster, data):
 def live_quota_data(device, filesets, user, group):
 
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
-    output = ['', '', '']
+    if cluster == 'milgram':
+        output = ['', '']
+    else:
+        output = ['', '', '']
 
     query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
     result = subprocess.check_output([query], shell=True)
@@ -175,17 +214,10 @@ def live_quota_data(device, filesets, user, group):
             continue
         fileset, _, section = parse_quota_line(quota, False)
 
-        if 'home' in fileset:
-            output[0] = section
-
-        elif 'scratch.' in fileset or 'project' in fileset:
-            output[1] = section
-
-        elif 'scratch60' in fileset:
-            output[2] = section
+        place_output(output, section, cluster, fileset) 
 
     for fileset in filesets:
-        if 'pi' in fileset:
+        if is_pi_fileset(fileset):
             query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
             pi_quota = subprocess.check_output([query], shell=True)
             output.append(parse_quota_line(pi_quota.split('\n')[1], False)[-1])
@@ -208,13 +240,9 @@ def cached_quota_data(filename, filesets, group):
 
             if fileset in filesets:
                 if name == group:
-                    if 'scratch.' in fileset or 'project' in fileset:
-                        output[0] = section
+                    place_output(output, section, cluster, fileset)
 
-                    elif 'scratch60' in fileset:
-                        output[1] = section
-
-                elif 'pi' in fileset and 'FILESET' in section:
+                elif is_pi_fileset(fileset, section=section):
                     output.append(section)
 
         return '\n'.join(output)
@@ -258,9 +286,11 @@ if (__name__ == '__main__'):
     filesystem = {'farnam': '/gpfs/ysm',
 		  'ruddle': '/gpfs/ycga',
                   'grace': '/gpfs/loomis',
+		  'milgram': '/gpfs/milgram',
                   }
     device = {'farnam': 'ysm-gpfs',
-	      'ruddle': 'ycga-gpfs'}
+	      'ruddle': 'ycga-gpfs',
+	      'milgram': 'milgram'}
 
     # usage details
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
@@ -268,6 +298,7 @@ if (__name__ == '__main__'):
 
     group_members = get_group_members(group_id)
     usage_data, filesets = read_usage_file(usage_filename, user, group_members)
+    validate_filesets(filesets, cluster)
     usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
 
     # quota summary
