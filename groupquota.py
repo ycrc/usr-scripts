@@ -128,6 +128,7 @@ def validate_filesets(filesets, cluster):
             filesets.append('project')
     if cluster in ['farmam', 'ruddle', 'grace']:
         if 'scratch60' not in filesets:
+            filesets.append('scratch60')
 
 
 def format_for_usage(fileset, user, data):
