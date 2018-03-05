@@ -89,6 +89,47 @@ def parse_quota_line(line, usage):
         return fileset, name, output
 
 
+def place_output(output, section, cluster, fileset):
+    if 'home' in fileset:
+        output[0] = section
+
+    elif 'scratch.' in fileset or 'project' in fileset:
+        output[1] = section
+
+    # scratch60 or scratch on Milgram
+    elif 'scratch' in fileset:
+        if cluster == 'milgram':
+            output[1] = section
+        else:
+            output[2] = section
+
+ 
+def is_pi_fileset(fileset, section=None):
+    if section is not None and 'FILESET' not in section:
+        return False
+
+    if 'pi' in fileset:
+            return True
+    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset:
+        return False
+    elif 'apps' in fileset:
+        return False
+    else:
+        return True
+
+
+def validate_filesets(filesets, cluster):
+
+    if cluster == 'milgram':
+        if 'scratch' not in filesets:
+            filesets.append('scratch')
+    if cluster in ['farnam', 'ruddle']:
+        if 'project' not in filesets:
+            filesets.append('project')
+    if cluster in ['farmam', 'ruddle', 'grace']:
+        if 'scratch60' not in filesets:
+
+
 def format_for_usage(fileset, user, data):
 
     return '{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
@@ -125,46 +166,6 @@ def read_usage_file(filename, this_user, group_members):
 
     return quota_data, list(user_filesets)
 
-
-def place_output(output, section, cluster, fileset):
-    if 'home' in fileset:
-        output[0] = section
-
-    elif 'scratch.' in fileset or 'project' in fileset:
-        output[1] = section
-
-    # scratch60 or scratch on Milgram
-    elif 'scratch' in fileset:
-        if cluster == 'milgram':
-            output[1] = section
-        else:
-            output[2] = section
-
- 
-def is_pi_fileset(fileset, section=None):
-    if section is not None and 'FILESET' not in section:
-        return False
-
-    if 'pi' in fileset:
-            return True
-    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset:
-        return False
-    elif 'apps' in fileset:
-        return False
-    else:
-        return True
-
-def validate_filesets(filesets, cluster):
-
-    if cluster == 'milgram':
-        if 'scratch' not in filesets:
-            filesets.append('scratch')
-    if cluster in ['farnam', 'ruddle']:
-        if 'project' not in filesets:
-            filesets.append('project')
-    if cluster in ['farmam', 'ruddle', 'grace']:
-        if 'scratch60' not in filesets:
-            filesets.append('scratch60')
 
 def compile_usage_output(filesets, group_members, cluster, data):
 
