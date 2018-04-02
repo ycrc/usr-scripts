@@ -46,14 +46,16 @@ def get_cluster():
     return cluster
 
 
-def get_group_members(group_id):
+def get_group_members(group_id, cluster):
 
     with open('/etc/yalehpc', 'r') as f:
         f.readline()
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
     query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
-    query += " cn=client,o=hpc.yale.edu -w hpc@Client 'gidNumber={0}' uid | grep '^uid'".format(group_id)
+    query += " cn=client,o=hpc.yale.edu -w hpc@Client"
+    query += " '(& ({0}HomeDirectory=*) (gidNumber={1}))'".format(cluster, group_id)
+    query += " uid | grep '^uid'"
     result = subprocess.check_output([query], shell=True)
 
     group_members = result.replace('uid: ', '').split('\n')
@@ -316,7 +318,7 @@ if (__name__ == '__main__'):
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
     timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
 
-    group_members = get_group_members(group_id)
+    group_members = get_group_members(group_id, cluster)
     usage_data, filesets, all_filesets = read_usage_file(usage_filename, user, group_members)
     validate_filesets(filesets, cluster, group_name, all_filesets)
     usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
