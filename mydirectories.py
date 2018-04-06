@@ -12,7 +12,7 @@ print "These directories are available from both Grace and Omega\n"
 dirs = {}
 
 dirs['omega'] = {'home': '/gpfs/loomis/home.omega/{0}/{1}/{2}'.format(metagroup, group, user),
-                        'scratch': '/gpfs/loomis/home.omega/{0}/{1}/{2}'.format(metagroup, group, user)}
+                        'scratch': '/gpfs/loomis/scratch.omega/{0}/{1}/{2}'.format(metagroup, group, user)}
 
 dirs['grace'] = {'home': '/gpfs/loomis/home.grace/{0}/{1}/{2}'.format(metagroup, group, user),
                         'project': '/gpfs/loomis/project/{0}/{1}/{2}'.format(metagroup, group, user),
