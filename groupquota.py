@@ -10,20 +10,27 @@ import grp
 import getpass
 
 
-def get_user_and_group():
+def get_args():
 
     if len(sys.argv) == 3:
         if sys.argv[1] == '-u':
             user = sys.argv[2]
+            is_me = False
+
         elif sys.argv[1] == '-g':
             user = None
             try:
                 group_id = grp.getgrnam(sys.argv[2]).gr_gid
             except:
                 sys.exit('Unknown group: '+sys.argv[2])
+            is_me = False
+
+        elif sys.argv[1] == '-c':
+            cluster = sys.argv[2]
+            user = getpass.getuser()
+            is_me = True
         else:
             sys.exit("Unknown argument. Use -u <user>, -g <group> or no argument for current user")
-        is_me = False
 
     else:
         user = getpass.getuser()
@@ -35,7 +42,7 @@ def get_user_and_group():
         except:
             sys.exit('Unknown user: '+user)
 
-    return user, group_id, is_me
+    return user, group_id, cluster, is_me
 
 
 def get_cluster():
@@ -93,9 +100,9 @@ def parse_quota_line(line, usage):
 
 def place_output(output, section, cluster, fileset):
     if 'home' in fileset:
-        if (('omega' in fileset and cluster != 'omega') or 
-            ('grace' in fileset and cluster != 'grace')):
-                pass
+        if (('omega' in fileset and cluster != 'omega') or
+                ('grace' in fileset and cluster != 'grace')):
+            pass
         else:
             output[0] = section
 
@@ -112,7 +119,7 @@ def place_output(output, section, cluster, fileset):
         else:
             output[2] = section
 
- 
+
 def is_pi_fileset(fileset, section=None):
     if section is not None and 'FILESET' not in section:
         return False
@@ -194,7 +201,7 @@ def compile_usage_output(filesets, group_members, cluster, data):
     for fileset in sorted(filesets):
         section = []
 
-        if is_pi_fileset(fileset): 
+        if is_pi_fileset(fileset):
             for user in sorted(data[fileset].keys()):
                 section.append(data[fileset][user])
             output.append('\n'.join(section))
@@ -232,7 +239,7 @@ def live_quota_data(device, filesets, user, group):
             continue
         fileset, _, section = parse_quota_line(quota, False)
 
-        place_output(output, section, cluster, fileset) 
+        place_output(output, section, cluster, fileset)
 
     for fileset in filesets:
         if is_pi_fileset(fileset):
@@ -299,15 +306,16 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
 
 if (__name__ == '__main__'):
 
-    user, group_id, is_me = get_user_and_group()
+    user, group_id, cluster, is_me = get_args()
     group_name = grp.getgrgid(group_id).gr_name
 
-    cluster = get_cluster()
+    if cluster is None:
+        cluster = get_cluster()
 
     filesystem = {'farnam': '/gpfs/ysm',
-	        	  'ruddle': '/gpfs/ycga',
+                  'ruddle': '/gpfs/ycga',
                   'grace': '/gpfs/loomis',
-		          'milgram': '/gpfs/milgram',
+                  'milgram': '/gpfs/milgram',
                   }
     device = {'farnam': 'ysm-gpfs',
               'ruddle': 'ycga-gpfs',
