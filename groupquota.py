@@ -316,11 +316,13 @@ if (__name__ == '__main__'):
                   'ruddle': '/gpfs/ycga',
                   'grace': '/gpfs/loomis',
                   'milgram': '/gpfs/milgram',
+                  'omega': '/gpfs/loomis'
                   }
     device = {'farnam': 'ysm-gpfs',
               'ruddle': 'ycga-gpfs',
               'milgram': 'milgram',
-              'grace': 'loomis'}
+              'grace': 'loomis',
+              'omega': 'loomis'}
 
     # usage details
     usage_filename = filesystem[cluster] + '/.mmrepquota/current'
