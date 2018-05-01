@@ -252,7 +252,7 @@ def live_quota_data(device, filesets, user, group):
     return '\n'.join(output)
 
 
-def cached_quota_data(filename, filesets, group):
+def cached_quota_data(filename, filesets, group, user):
 
     if cluster == 'milgram':
         output = ['', '']
@@ -263,12 +263,20 @@ def cached_quota_data(filename, filesets, group):
         f.readline()
         for line in f:
 
-            if 'USR' in line or 'root' in line:
+            if 'root' in line:
                 continue
+            if 'USR' in line:
+                if cluster not in ['farnam', 'ruddle'] or user is None:
+                    continue
 
             fileset, name, section = parse_quota_line(line, False)
 
             if fileset in filesets:
+                if fileset == 'home' and cluster in ['farnam', 'ruddle']:
+                    if 'USR' in line and name == user:
+                        place_output(output, section, cluster, fileset)
+                    continue
+
                 if name == group:
                     place_output(output, section, cluster, fileset)
 
@@ -339,6 +347,6 @@ if (__name__ == '__main__'):
     if is_me:
         quota_output = live_quota_data(device[cluster], filesets, user, group_id)
     else:
-        quota_output = cached_quota_data(usage_filename, filesets, group_name)
+        quota_output = cached_quota_data(usage_filename, filesets, group_name, user)
 
     print_output(usage_output, quota_output, group_name, timestamp, is_me)
