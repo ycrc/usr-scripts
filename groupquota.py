@@ -55,6 +55,26 @@ def get_cluster():
     return cluster
 
 
+def get_netid(uid):
+
+    with open('/etc/yalehpc', 'r') as f:
+        f.readline()
+        mgt = f.readline().split('=')[1].replace('"', '').rstrip()
+
+    try:
+        query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
+        query += " cn=client,o=hpc.yale.edu -w hpc@Client"
+        query += " '(& ({0}HomeDirectory=*) (uidNumber={1}))'".format(cluster, uid)
+        query += " uid | grep '^uid'"
+        result = subprocess.check_output([query], shell=True)
+        name = result.replace('uid: ', '').rstrip('\n')
+
+    except:
+        name = uid
+
+    return name
+
+
 def get_group_members(group_id, cluster):
 
     with open('/etc/yalehpc', 'r') as f:
@@ -91,13 +111,16 @@ def parse_quota_line(line, usage):
     data = [int(split[10])/1024/1024, int(split[11])/1024/1024,
             int(split[15]), int(split[16])]
 
+    # if name and name[0].isdigit():
+    #     name = get_netid(name)
+
     if usage:
         output = format_for_usage(fileset, name, data)
-        return fileset, name, output
 
     else:
         output = format_for_summary(fileset, quota_type, data)
-        return fileset, name, output
+
+    return fileset, name, output
 
 
 def place_output(output, section, cluster, fileset):
@@ -148,7 +171,7 @@ def validate_filesets(filesets, cluster, group, all_filesets):
         if 'scratch60' not in filesets:
             filesets.append('scratch60')
 
-    for fileset in all_filesets:
+    for fileset in all_filesets.keys():
         if group in fileset and fileset not in filesets:
             filesets.append(fileset)
 
@@ -166,31 +189,36 @@ def format_for_summary(fileset, quota_type, data):
                                                           data[2], data[3])
 
 
-def read_usage_file(filename, this_user, group_members):
+def read_usage_file(filesystems, this_user, group_members):
 
     quota_data = {}
     user_filesets = set()
-    all_filesets = set()
+    all_filesets = {}
 
-    with open(filename, 'r') as f:
-        f.readline()
-        for line in f:
+    for filesystem in filesystems:
+        filename = filesystem + '/.mmrepquota/current'
 
-            if 'USR' not in line or 'root' in line:
-                continue
+        with open(filename, 'r') as f:
+            f.readline()
+            for line in f:
 
-            fileset, user, output = parse_quota_line(line, True)
+                if 'USR' not in line or 'root' in line:
+                    continue
 
-            if fileset not in quota_data.keys():
-                quota_data[fileset] = {}
-            quota_data[fileset][user] = output
+                fileset, user, output = parse_quota_line(line, True)
 
-            if user == this_user or (this_user is None and user in group_members):
-                user_filesets.add(fileset)
+                if fileset not in quota_data.keys():
+                    quota_data[fileset] = {}
 
-            all_filesets.add(fileset)
+                quota_data[fileset][user] = output
 
-    return quota_data, list(user_filesets), list(all_filesets)
+                if user == this_user or (this_user is None and user in group_members):
+                    user_filesets.add(fileset)
+
+                if fileset not in all_filesets.keys():
+                    all_filesets[fileset] = filesystem
+
+    return quota_data, list(user_filesets), all_filesets
 
 
 def compile_usage_output(filesets, group_members, cluster, data):
@@ -220,7 +248,7 @@ def compile_usage_output(filesets, group_members, cluster, data):
     return '\n----\n'.join(output)
 
 
-def live_quota_data(device, filesets, user, group):
+def live_quota_data(devices, filesystems, filesets, all_filesets, user, group):
 
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
     if cluster == 'milgram':
@@ -228,62 +256,70 @@ def live_quota_data(device, filesets, user, group):
     else:
         output = ['', '', '']
 
-    query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-    result = subprocess.check_output([query], shell=True)
+    for device, filesystem in zip(devices, filesystems):
 
-    # add user quotas for LS home directories
-    if cluster in ['farnam', 'ruddle']:
-        query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
-        result += subprocess.check_output([query], shell=True)
+        query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
+        result = subprocess.check_output([query], shell=True)
 
-    for quota in result.split('\n'):
-        if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
-            continue
-        fileset, _, section = parse_quota_line(quota, False)
+        # add user quotas for LS home directories
+        if cluster in ['farnam', 'ruddle'] and device not in ['slayman']:
+            query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
+            result += subprocess.check_output([query], shell=True)
 
-        place_output(output, section, cluster, fileset)
+        for quota in result.split('\n'):
+            if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
+                continue
+            fileset, _, section = parse_quota_line(quota, False)
 
-    for fileset in filesets:
-        if is_pi_fileset(fileset):
-            query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
-            pi_quota = subprocess.check_output([query], shell=True)
-            output.append(parse_quota_line(pi_quota.split('\n')[1], False)[-1])
+            place_output(output, section, cluster, fileset)
+
+        for fileset in filesets:
+            # query all the pi filesets
+            if is_pi_fileset(fileset):
+                # check if this fileset is on this device
+                if all_filesets[fileset] == filesystem:
+                    query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
+                    pi_quota = subprocess.check_output([query], shell=True)
+                    output.append(parse_quota_line(pi_quota.split('\n')[1], False)[-1])
 
     return '\n'.join(output)
 
 
-def cached_quota_data(filename, filesets, group, user):
+def cached_quota_data(filesystems, filesets, group, user):
 
     if cluster == 'milgram':
         output = ['', '']
     else:
         output = ['', '', '']
 
-    with open(filename, 'r') as f:
-        f.readline()
-        for line in f:
+    for filesystem in filesystems:
 
-            if 'root' in line:
-                continue
-            if 'USR' in line:
-                if cluster not in ['farnam', 'ruddle'] or user is None:
+        filename = filesystem + '/.mmrepquota/current'
+        with open(filename, 'r') as f:
+            f.readline()
+            for line in f:
+
+                if 'root' in line:
                     continue
+                if 'USR' in line:
+                    if cluster not in ['farnam', 'ruddle'] or user is None:
+                        continue
 
-            fileset, name, section = parse_quota_line(line, False)
+                fileset, name, section = parse_quota_line(line, False)
 
-            if fileset in filesets:
-                if fileset == 'home' and cluster in ['farnam', 'ruddle']:
-                    if 'USR' in line and name == user:
+                if fileset in filesets:
+                    if fileset == 'home' and cluster in ['farnam', 'ruddle']:
+                        if 'USR' in line and name == user:
+                            place_output(output, section, cluster, fileset)
+                        continue
+
+                    if name == group:
                         place_output(output, section, cluster, fileset)
-                    continue
 
-                if name == group:
-                    place_output(output, section, cluster, fileset)
+                    elif is_pi_fileset(fileset, section=section):
+                        output.append(section)
 
-                elif is_pi_fileset(fileset, section=section):
-                    output.append(section)
-
-        return '\n'.join(output)
+    return '\n'.join(output)
 
 
 def print_output(usage_output, quota_output, group_name, timestamp, is_me):
@@ -322,31 +358,31 @@ if (__name__ == '__main__'):
     if cluster is None:
         cluster = get_cluster()
 
-    filesystem = {'farnam': '/gpfs/ysm',
-                  'ruddle': '/gpfs/ycga',
-                  'grace': '/gpfs/loomis',
-                  'milgram': '/gpfs/milgram',
-                  'omega': '/gpfs/loomis'
-                  }
-    device = {'farnam': 'ysm-gpfs',
-              'ruddle': 'ycga-gpfs',
-              'milgram': 'milgram',
-              'grace': 'loomis',
-              'omega': 'loomis'}
+    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/slayman'],
+                   'ruddle': ['/gpfs/ycga'],
+                   'grace': ['/gpfs/loomis'],
+                   'milgram': ['/gpfs/milgram'],
+                   'omega': ['/gpfs/loomis']
+                   }
+    devices = {'farnam': ['ysm-gpfs', 'slayman'],
+               'ruddle': ['ycga-gpfs'],
+               'milgram': ['milgram'],
+               'grace': ['loomis'],
+               'omega': ['loomis']}
 
     # usage details
-    usage_filename = filesystem[cluster] + '/.mmrepquota/current'
-    timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(usage_filename)))
+    timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(filesystems[cluster][0]
+                                                                             + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
-    usage_data, filesets, all_filesets = read_usage_file(usage_filename, user, group_members)
+    usage_data, filesets, all_filesets = read_usage_file(filesystems[cluster], user, group_members)
     validate_filesets(filesets, cluster, group_name, all_filesets)
     usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
 
     # quota summary
     if is_me:
-        quota_output = live_quota_data(device[cluster], filesets, user, group_id)
+        quota_output = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id)
     else:
-        quota_output = cached_quota_data(usage_filename, filesets, group_name, user)
+        quota_output = cached_quota_data(filesystems[cluster], filesets, group_name, user)
 
     print_output(usage_output, quota_output, group_name, timestamp, is_me)
