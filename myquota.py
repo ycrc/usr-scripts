@@ -100,16 +100,21 @@ def parse_quota_line(line, usage):
 
     split = line.split(':')
 
+    # Fileset
     quota_type = split[7]
     if quota_type == 'FILESET':
+        # name
         fileset = split[9]
         name = ''
     else:
+        # name
         name = split[9]
         fileset = split[-2]
 
-    data = [int(split[10])/1024/1024, int(split[11])/1024/1024,
-            int(split[15]), int(split[16])]
+    # blockUsage+blockInDoubt, blockQuota
+    # filesUsage+filesInDoubt, filesQuota
+    data = [int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[11])/1024/1024,
+            int(split[15])+int(split[18]), int(split[16])]
 
     # if name and name[0].isdigit():
     #     name = get_netid(name)
