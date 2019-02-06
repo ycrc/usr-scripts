@@ -9,6 +9,7 @@ import pwd
 import grp
 import getpass
 
+user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
 def get_args():
 
@@ -169,7 +170,7 @@ def validate_filesets(filesets, cluster, group, all_filesets):
     if cluster == 'milgram':
         if 'scratch' not in filesets:
             filesets.append('scratch')
-    if cluster in ['farnam', 'ruddle']:
+    if cluster in ['farnam', 'ruddle', 'grace']:
         if 'project' not in filesets:
             filesets.append('project')
     if cluster in ['farmam', 'ruddle', 'grace']:
@@ -267,7 +268,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group):
         result = subprocess.check_output([query], shell=True)
 
         # add user quotas for LS home directories
-        if cluster in ['farnam', 'ruddle'] and device not in ['slayman']:
+        if cluster in user_quotas_clusters and device not in ['slayman']:
             query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
             result += subprocess.check_output([query], shell=True)
 
@@ -307,13 +308,13 @@ def cached_quota_data(filesystems, filesets, group, user):
                 if 'root' in line:
                     continue
                 if 'USR' in line:
-                    if cluster not in ['farnam', 'ruddle'] or user is None:
+                    if cluster not in user_quotas_clusters or user is None:
                         continue
 
                 fileset, name, section = parse_quota_line(line, False)
 
                 if fileset in filesets:
-                    if fileset == 'home' and cluster in ['farnam', 'ruddle']:
+                    if fileset == 'home' and cluster in user_quotas_clusters:
                         if 'USR' in line and name == user:
                             place_output(output, section, cluster, fileset)
                         continue
