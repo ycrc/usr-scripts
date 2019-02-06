@@ -4,6 +4,8 @@ import os
 import sys
 import subprocess
 
+debug = False
+
 
 def get_cluster():
 
@@ -31,9 +33,17 @@ def get_group(home, cluster):
             query += " cn=client,o=hpc.yale.edu -w hpc@Client"
             query += " '(uid={0})'".format(netid)
             query += " {0}HomeDirectory | grep '^{0}HomeDirectory'".format(cluster)
-            result = subprocess.check_output([query], shell=True)
 
-            if len(result) > 0:
+            try:
+                result = subprocess.check_output([query], shell=True, stderr=subprocess.STDOUT)
+            except subprocess.CalledProcessError as e:
+                if debug:
+                    raise RuntimeError("command '{}' return with error (code {}): {}"
+                                       .format(e.cmd, e.returncode, e.output))
+                else:
+                    result = ''
+
+            if result:
                 result = result.replace(cluster+'HomeDirectory: ', '').rstrip('\n')
                 return result.split('/')[-3:]
 
