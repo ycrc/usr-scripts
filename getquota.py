@@ -314,7 +314,7 @@ def cached_quota_data(filesystems, filesets, group, user):
                 fileset, name, section = parse_quota_line(line, False)
 
                 if fileset in filesets:
-                    if fileset == 'home' and cluster in user_quotas_clusters:
+                    if 'home' in fileset and cluster in user_quotas_clusters:
                         if 'USR' in line and name == user:
                             place_output(output, section, cluster, fileset)
                         continue
