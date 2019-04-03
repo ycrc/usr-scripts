@@ -97,7 +97,7 @@ def get_group_members(group_id, cluster):
     return group_members
 
 
-def parse_quota_line(line, usage):
+def parse_quota_line(line, usage, cluster):
 
     split = line.split(':')
 
@@ -124,27 +124,27 @@ def parse_quota_line(line, usage):
         output = format_for_usage(fileset, name, data)
 
     else:
-        output = format_for_summary(fileset, quota_type, data)
+        output = format_for_summary(fileset, quota_type, data, cluster)
 
     return fileset, name, output
 
 
 def place_output(output, section, cluster, fileset):
     if 'home' in fileset:
-        if (('omega' in fileset and cluster != 'omega') or
-                ('grace' in fileset and cluster != 'grace')):
-            pass
-        else:
+        #if (('omega' in fileset and cluster != 'omega') or
+        #        ('grace' in fileset and cluster != 'grace')):
+        #    pass
+        #else:
             output[0] = section
 
-    elif 'scratch.' in fileset or 'project' in fileset:
-        if 'omega' in fileset and cluster != 'omega':
-            pass
-        else:
-            output[1] = section
+    elif 'project' in fileset:
+        output[1] = section
 
     # scratch60 or scratch on Milgram
     elif 'scratch' in fileset:
+        if fileset == 'scratch.omega':
+            return
+
         if cluster == 'milgram':
             output[1] = section
         else:
@@ -181,21 +181,30 @@ def validate_filesets(filesets, cluster, group, all_filesets):
         if group in fileset and fileset not in filesets:
             filesets.append(fileset)
 
-
 def format_for_usage(fileset, user, data):
 
     return '{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
                                              data[0], data[2])
 
 
-def format_for_summary(fileset, quota_type, data):
+def format_for_summary(fileset, quota_type, data, cluster):
 
-    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,}'.format(fileset, quota_type,
+    backup = 'No'
+    purge = 'No'
+
+    if 'home' in fileset or cluster == 'milgram':
+        backup = 'Yes'
+    
+    elif 'scratch' in fileset:
+        purge = '60 days'
+    
+
+    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10} {7:10}'.format(fileset, quota_type,
                                                           data[0], data[1],
-                                                          data[2], data[3])
+                                                          data[2], data[3], backup, purge)
 
 
-def read_usage_file(filesystems, this_user, group_members):
+def read_usage_file(filesystems, this_user, group_members, cluster):
 
     quota_data = {}
     user_filesets = set()
@@ -211,7 +220,9 @@ def read_usage_file(filesystems, this_user, group_members):
                 if 'USR' not in line or 'root' in line:
                     continue
 
-                fileset, user, output = parse_quota_line(line, True)
+                fileset, user, output = parse_quota_line(line, True, cluster)
+                if 'home' in fileset or fileset == 'scratch.omega':
+                    continue
 
                 if fileset not in quota_data.keys():
                     quota_data[fileset] = {}
@@ -251,10 +262,13 @@ def compile_usage_output(filesets, group_members, cluster, data):
 
             place_output(output, '\n'.join(section), cluster, fileset)
 
+    # don't show home data
+    output.pop(0)
+
     return '\n----\n'.join(output)
 
 
-def live_quota_data(devices, filesystems, filesets, all_filesets, user, group):
+def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
 
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
     if cluster == 'milgram':
@@ -275,7 +289,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group):
         for quota in result.split('\n'):
             if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
                 continue
-            fileset, _, section = parse_quota_line(quota, False)
+            fileset, _, section = parse_quota_line(quota, False, cluster)
 
             place_output(output, section, cluster, fileset)
 
@@ -286,12 +300,12 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group):
                 if all_filesets[fileset] == filesystem:
                     query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
                     pi_quota = subprocess.check_output([query], shell=True)
-                    output.append(parse_quota_line(pi_quota.split('\n')[1], False)[-1])
+                    output.append(parse_quota_line(pi_quota.split('\n')[1], False, cluster)[-1])
 
     return '\n'.join(output)
 
 
-def cached_quota_data(filesystems, filesets, group, user):
+def cached_quota_data(filesystems, filesets, group, user, cluster):
 
     if cluster == 'milgram':
         output = ['', '']
@@ -311,7 +325,7 @@ def cached_quota_data(filesystems, filesets, group, user):
                     if cluster not in user_quotas_clusters or user is None:
                         continue
 
-                fileset, name, section = parse_quota_line(line, False)
+                fileset, name, section = parse_quota_line(line, False, cluster)
 
                 if fileset in filesets:
                     if 'home' in fileset and cluster in user_quotas_clusters:
@@ -347,10 +361,11 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
         time = timestamp
 
     header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}\n'.format('Fileset', 'Type', 'Usage (GB)',
-                                                             ' Quota (GB)', ' File Count', ' File Limit')
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}'.format('-'*13, '-'*7, '-'*12,
-                                                           ' '+'-'*11, ' '+'-'*13, ' '+'-'*13)
+    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GB)',
+                                                             ' Quota (GB)', ' File Count', ' File Limit', ' Backup', ' Purged')
+    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*13, '-'*7, '-'*12,
+                                                           ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
+                                                           ' '+'-'*9, ' '+'-'*9)
 
     print(header)
     print(quota_output)
@@ -381,14 +396,14 @@ if (__name__ == '__main__'):
                                                                              + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
-    usage_data, filesets, all_filesets = read_usage_file(filesystems[cluster], user, group_members)
+    usage_data, filesets, all_filesets = read_usage_file(filesystems[cluster], user, group_members, cluster)
     validate_filesets(filesets, cluster, group_name, all_filesets)
     usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
 
     # quota summary
     if is_me:
-        quota_output = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id)
+        quota_output = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
     else:
-        quota_output = cached_quota_data(filesystems[cluster], filesets, group_name, user)
+        quota_output = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
     print_output(usage_output, quota_output, group_name, timestamp, is_me)
