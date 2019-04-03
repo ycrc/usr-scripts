@@ -221,8 +221,6 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
                     continue
 
                 fileset, user, output = parse_quota_line(line, True, cluster)
-                if 'home' in fileset or fileset == 'scratch.omega':
-                    continue
 
                 if fileset not in quota_data.keys():
                     quota_data[fileset] = {}
