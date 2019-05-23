@@ -195,7 +195,7 @@ def format_for_summary(fileset, quota_type, data, cluster):
     if 'home' in fileset or cluster == 'milgram':
         backup = 'Yes'
     
-    elif 'scratch' in fileset:
+    if 'scratch' in fileset:
         purge = '60 days'
     
 
