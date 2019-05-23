@@ -62,8 +62,7 @@ print "Loomis directories are available from all clusters.\n"
 
 dirs = {}
 
-dirs['omega'] = {'home': '/gpfs/loomis/home.omega/{0}/{1}/{2}'.format(metagroup, group, user),
-                 'scratch': '/gpfs/loomis/scratch.omega/{0}/{1}/{2}'.format(metagroup, group, user)}
+dirs['omega'] = {'home': '/gpfs/loomis/home.omega/{0}/{1}/{2}'.format(metagroup, group, user)}
 
 dirs['grace'] = {'home': '/gpfs/loomis/home.grace/{0}/{1}/{2}'.format(metagroup, group, user),
                  'project': '/gpfs/loomis/project/{0}/{1}/{2}'.format(metagroup, group, user),
@@ -76,13 +75,13 @@ dirs['farnam'] = {'home': '/gpfs/ysm/home/{0}'.format(user),
                   }
 
 
-if os.path.exists(dirs['omega']['home']) or os.path.exists(dirs['omega']['scratch']):
+if os.path.exists(dirs['omega']['home']): #or os.path.exists(dirs['omega']['scratch']):
     print 'Omega'
     print '====='
     if os.path.exists(dirs['omega']['home']):
         print'{0:9} {1}'.format('home', dirs['omega']['home'])
-    if os.path.exists(dirs['omega']['scratch']):
-        print'{0:9} {1}'.format('scratch', dirs['omega']['scratch'])
+#    if os.path.exists(dirs['omega']['scratch']):
+#        print'{0:9} {1}'.format('scratch', dirs['omega']['scratch'])
     print ' '
 
 if (os.path.exists(dirs['grace']['home']) or os.path.exists(dirs['grace']['project']) or
