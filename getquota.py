@@ -140,11 +140,8 @@ def place_output(output, section, cluster, fileset):
     elif 'project' in fileset:
         output[1] = section
 
-    # scratch60 or scratch on Milgram
-    elif 'scratch' in fileset:
-        if fileset == 'scratch.omega':
-            return
-
+    # scratch60 
+    elif 'scratch60' in fileset:
         if cluster == 'milgram':
             output[1] = section
         else:
@@ -157,7 +154,7 @@ def is_pi_fileset(fileset, section=None):
 
     if 'pi' in fileset:
             return True
-    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset:
+    elif 'scratch60' in fileset or 'home' in fileset or 'project' in fileset:
         return False
     elif 'apps' in fileset:
         return False
@@ -167,15 +164,11 @@ def is_pi_fileset(fileset, section=None):
 
 def validate_filesets(filesets, cluster, group, all_filesets):
 
-    if cluster == 'milgram':
-        if 'scratch' not in filesets:
-            filesets.append('scratch')
     if cluster in ['farnam', 'ruddle', 'grace']:
         if 'project' not in filesets:
             filesets.append('project')
-    if cluster in ['farmam', 'ruddle', 'grace']:
-        if 'scratch60' not in filesets:
-            filesets.append('scratch60')
+    if 'scratch60' not in filesets:
+        filesets.append('scratch60')
 
     for fileset in all_filesets.keys():
         if group in fileset and fileset not in filesets:
@@ -195,7 +188,7 @@ def format_for_summary(fileset, quota_type, data, cluster):
     if 'home' in fileset or cluster == 'milgram':
         backup = 'Yes'
     
-    if 'scratch' in fileset:
+    if 'scratch60' in fileset:
         purge = '60 days'
     
 
