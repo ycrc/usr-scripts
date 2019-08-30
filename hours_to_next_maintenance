@@ -1,0 +1,2 @@
+#!/bin/bash
+echo $((($(date -d "$(sinfo -hT reservation=maintenance | awk '{print$3}')" '+%s') - $(date -d now +%s)) / 3600))
