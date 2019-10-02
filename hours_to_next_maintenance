@@ -1,0 +1,10 @@
+#!/bin/bash
+
+set -Eeuo pipefail
+
+maint_start="$(sinfo -hT reservation=maintenance | awk '{print$3}')"
+
+# sinfo will return "No reservations in the system" if none found.
+[[ $maint_start == "in" ]] && echo "No upcoming reservations found" && exit 1
+
+echo $((($(date -d "${maint_start}" '+%s') - $(date -d now +%s)) / 3600))
