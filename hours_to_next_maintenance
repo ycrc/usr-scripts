@@ -2,7 +2,7 @@
 
 set -Eeuo pipefail
 
-maint_start="$(sinfo -hT reservation=maintenance | awk '{print$3}')"
+maint_start="$(sinfo -hT reservation=maintenance | head -n1 | awk '{print$3}')"
 
 # sinfo will return "No reservations in the system" if none found.
 [[ $maint_start == "in" ]] && echo "No upcoming reservations found" && exit 1
