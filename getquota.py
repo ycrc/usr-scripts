@@ -65,7 +65,7 @@ def get_netid(uid):
     try:
         query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
         query += " cn=client,o=hpc.yale.edu -w hpc@Client"
-        query += " '(& ({0}HomeDirectory=*) (uidNumber={1}))'".format(cluster, uid)
+        query += " 'uidNumber={1}'".format(cluster, uid)
         query += " uid | grep '^uid'"
         result = subprocess.check_output([query], shell=True)
         name = result.replace('uid: ', '').rstrip('\n')
@@ -97,7 +97,7 @@ def get_group_members(group_id, cluster):
     return group_members
 
 
-def parse_quota_line(line, usage, cluster):
+def parse_quota_line(line, details, cluster):
 
     split = line.split(':')
 
@@ -114,19 +114,10 @@ def parse_quota_line(line, usage, cluster):
 
     # blockUsage+blockInDoubt, blockQuota
     # filesUsage+filesInDoubt, filesQuota
-    data = [int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[11])/1024/1024,
+    data = [fileset, name, quota_type, int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[11])/1024/1024,
             int(split[15])+int(split[18]), int(split[16])]
 
-    # if name and name[0].isdigit():
-    #     name = get_netid(name)
-
-    if usage:
-        output = format_for_usage(fileset, name, data)
-
-    else:
-        output = format_for_summary(fileset, quota_type, data, cluster)
-
-    return fileset, name, output
+    return fileset, name, data
 
 
 def place_output(output, section, cluster, fileset):
@@ -140,7 +131,7 @@ def place_output(output, section, cluster, fileset):
     elif 'project' in fileset:
         output[1] = section
 
-    # scratch60 
+    # scratch60
     elif 'scratch60' in fileset:
         if cluster == 'milgram':
             output[1] = section
@@ -174,32 +165,65 @@ def validate_filesets(filesets, cluster, group, all_filesets):
         if group in fileset and fileset not in filesets:
             filesets.append(fileset)
 
-def format_for_usage(fileset, user, data):
 
-    return '{0:14}{1:6}{2:10}{3:14,}'.format(fileset, user,
-                                             data[0], data[2])
+def format_for_details(data):
+
+    # fileset, user, bytes, file count
+    return '{0:14}{1:6}{2:10}{3:14,}'.format(data[0], data[1],
+                                             data[3], data[5])
 
 
-def format_for_summary(fileset, quota_type, data, cluster):
+def format_for_summary(data, cluster):
 
     backup = 'No'
     purge = 'No'
 
+    fileset = data[1]
+
     if 'home' in fileset or cluster == 'milgram':
         backup = 'Yes'
-    
+
     if 'scratch60' in fileset:
         purge = '60 days'
-    
 
-    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10} {7:10}'.format(fileset, quota_type,
-                                                          data[0], data[1],
-                                                          data[2], data[3], backup, purge)
+    # fileset, userid, quota_type, bytes, byte quota, file count, file limit
+    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
+                                                                       data[3], data[4], 
+                                                                       data[5], data[6],
+                                                                       backup, purge)
+
+
+def check_limits(summary_data):
+
+    at_limit = {'byte': False,
+                 'file': False}
+
+    if (summary_data[4]-summary_data[3])/float(summary_data[4]) <= 0.05:
+        at_limit['byte'] = True
+    if (summary_data[6]-summary_data[5])/float(summary_data[6]) <= 0.05:
+        at_limit['file'] = True
+
+    return at_limit
+
+
+def limits_warnings(summary_data):
+
+    at_limit = check_limits(summary_data)
+    warnings = []
+
+    if at_limit['byte']:
+        warnings.append("Warning!!! You are at or near your storage limit in the %s fileset. "
+                        "Reduce your storage usage to avoid issues." % summary_data[0])
+    # file limit
+    if at_limit['file']:
+        warnings.append("Warning!!! You are at or near your file count limit in the %s fileset. "
+                         "Reduce the number of files to avoid issues." % summary_data[0])
+    return warnings
 
 
 def read_usage_file(filesystems, this_user, group_members, cluster):
 
-    quota_data = {}
+    usage_data = {}
     user_filesets = set()
     all_filesets = {}
 
@@ -213,12 +237,12 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
                 if 'USR' not in line or 'root' in line:
                     continue
 
-                fileset, user, output = parse_quota_line(line, True, cluster)
+                fileset, user, user_data = parse_quota_line(line, True, cluster)
 
-                if fileset not in quota_data.keys():
-                    quota_data[fileset] = {}
+                if fileset not in usage_data.keys():
+                    usage_data[fileset] = {}
 
-                quota_data[fileset][user] = output
+                usage_data[fileset][user] = user_data
 
                 if user == this_user or (this_user is None and user in group_members):
                     user_filesets.add(fileset)
@@ -226,10 +250,10 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
                 if fileset not in all_filesets.keys():
                     all_filesets[fileset] = filesystem
 
-    return quota_data, list(user_filesets), all_filesets
+    return usage_data, list(user_filesets), all_filesets
 
 
-def compile_usage_output(filesets, group_members, cluster, data):
+def compile_usage_details(filesets, group_members, cluster, data):
 
     if cluster == 'milgram':
         output = ['', '']
@@ -241,17 +265,17 @@ def compile_usage_output(filesets, group_members, cluster, data):
 
         if is_pi_fileset(fileset):
             for user in sorted(data[fileset].keys()):
-                section.append(data[fileset][user])
+                section.append(format_for_details(data[fileset][user]))
             output.append('\n'.join(section))
 
         else:
             for group_member in sorted(group_members):
                 if group_member not in data[fileset].keys():
-                    section.append(format_for_usage(fileset, group_member, [0, 0, 0, 0]))
+                    section.append(format_for_details([fileset, group_member, 0, 0, 0, 0]))
                 else:
-                    section.append(data[fileset][group_member])
+                    section.append(format_for_details(data[fileset][group_member]))
 
-            place_output(output, '\n'.join(section), cluster, fileset)
+        place_output(output, '\n'.join(section), cluster, fileset)
 
     # don't show home data
     output.pop(0)
@@ -272,7 +296,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
         query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
         result = subprocess.check_output([query], shell=True)
 
-        # add user quotas for LS home directories
+        # user based home quotas
         if cluster in user_quotas_clusters and device not in ['slayman']:
             query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
             result += subprocess.check_output([query], shell=True)
@@ -293,7 +317,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                     pi_quota = subprocess.check_output([query], shell=True)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, cluster)[-1])
 
-    return '\n'.join(output)
+    return output
 
 
 def cached_quota_data(filesystems, filesets, group, user, cluster):
@@ -330,10 +354,10 @@ def cached_quota_data(filesystems, filesets, group, user, cluster):
                     elif is_pi_fileset(fileset, section=section):
                         output.append(section)
 
-    return '\n'.join(output)
+    return output
 
 
-def print_output(usage_output, quota_output, group_name, timestamp, is_me):
+def print_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
 
     header = "This script shows information about your quotas on the current gpfs filesystem.\n"
     header += "If you plan to poll this sort of information extensively, please contact us\n"
@@ -344,7 +368,7 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
     header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
-    print(usage_output)
+    print(details_data)
 
     if is_me:
         time = 'right now'
@@ -359,7 +383,19 @@ def print_output(usage_output, quota_output, group_name, timestamp, is_me):
                                                            ' '+'-'*9, ' '+'-'*9)
 
     print(header)
-    print(quota_output)
+    for summary in summary_data:
+        if summary:
+            print(format_for_summary(summary, cluster))
+
+    warnings = []
+    for summary in summary_data:
+        if summary:
+            warnings += limits_warnings(summary)
+
+    if len(warnings):
+        print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
+        print('\n'.join(warnings))
+        print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
 
 if (__name__ == '__main__'):
@@ -389,12 +425,13 @@ if (__name__ == '__main__'):
     group_members = get_group_members(group_id, cluster)
     usage_data, filesets, all_filesets = read_usage_file(filesystems[cluster], user, group_members, cluster)
     validate_filesets(filesets, cluster, group_name, all_filesets)
-    usage_output = compile_usage_output(filesets, group_members, cluster, usage_data)
+
+    details_data = compile_usage_details(filesets, group_members, cluster, usage_data)
 
     # quota summary
     if is_me:
-        quota_output = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
+        summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
     else:
-        quota_output = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
+        summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
-    print_output(usage_output, quota_output, group_name, timestamp, is_me)
+    print_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
