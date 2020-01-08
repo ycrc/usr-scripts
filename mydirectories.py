@@ -4,109 +4,72 @@ import os
 import sys
 import subprocess
 
+import pwd
+import grp
+import getpass
+
 debug = False
 
+def get_args():
+    
+    # get user
+    user = getpass.getuser()
 
-def get_cluster():
+    # get group
+    try:
+        group_id = pwd.getpwnam(user).pw_gid
+        group_name = grp.getgrgid(group_id).gr_name
+    except:
+        sys.exit('Unknown user: '+user)
 
-    with open('/etc/yalehpc', 'r') as f:
-        cluster = f.readline().split('=')[1].replace('"', '').rstrip()
+    return user, group_name
 
-    return cluster
+def construct_dirs(user, group):
 
+    dirs = {}
 
-def get_group(home, cluster):
-    if cluster in ['grace', 'omega']:
-        return home.split('/')[-3:]
+    dirs['grace'] = {'home': '/gpfs/loomis/home.grace/{0}/{1}'.format(group, user),
+                     'project': '/gpfs/loomis/project/{0}/{1}'.format(group, user),
+                     'scratch60': '/gpfs/loomis/scratch60/{0}/{1}'.format(group, user)
+                     }
 
-    elif cluster == 'farnam':
+    dirs['farnam'] = {'home': '/gpfs/ysm/home/{0}'.format(user),
+                      'project': '/gpfs/ysm/project/{0}/{1}'.format(group, user),
+                      'scratch60': '/gpfs/ysm/scratch60/{0}/{1}'.format(group, user)
+                      }
 
-        with open('/etc/yalehpc', 'r') as f:
-            f.readline()
-            mgt = f.readline().split('=')[1].replace('"', '').rstrip()
+    dirs['ruddle']  = {'home': '/gpfs/ycga/home/{0}'.format(user),
+                      'project': '/gpfs/ycga/project/{0}/{1}'.format(group, user),
+                      'scratch60': '/gpfs/ycga/scratch60/{0}/{1}'.format(group, user)
+                      }
 
-        netid = home.split('/')[-1]
-
-        for cluster in ['grace', 'omega']:
-
-            query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
-            query += " cn=client,o=hpc.yale.edu -w hpc@Client"
-            query += " '(uid={0})'".format(netid)
-            query += " {0}HomeDirectory | grep '^{0}HomeDirectory'".format(cluster)
-
-            try:
-                result = subprocess.check_output([query], shell=True, stderr=subprocess.STDOUT)
-            except subprocess.CalledProcessError as e:
-                if debug:
-                    raise RuntimeError("command '{}' return with error (code {}): {}"
-                                       .format(e.cmd, e.returncode, e.output))
-                else:
-                    result = ''
-
-            if result:
-                result = result.replace(cluster+'HomeDirectory: ', '').rstrip('\n')
-                return result.split('/')[-3:]
-
-        return 0, 0, netid
-
-    else:
-        sys.exit('Unknown cluster')
+    return dirs
 
 
-home = os.environ['HOME']
+def print_output(dirs):
 
-metagroup, group, user = get_group(home, get_cluster())
+    print "Full directory paths for {}:\n".format(user)
 
-print "Full directory paths for {}".format(user)
-print "Loomis directories are available from all clusters.\n"
+    for cluster in ['grace', 'farnam', 'ruddle']:
+    
+        if (os.path.exists(dirs[cluster]['home']) or os.path.exists(dirs[cluster]['project']) or
+                os.path.exists(dirs[cluster]['scratch60'])):
 
-dirs = {}
-
-dirs['omega'] = {'home': '/gpfs/loomis/home.omega/{0}/{1}/{2}'.format(metagroup, group, user)}
-
-dirs['grace'] = {'home': '/gpfs/loomis/home.grace/{0}/{1}/{2}'.format(metagroup, group, user),
-                 'project': '/gpfs/loomis/project/{0}/{1}/{2}'.format(metagroup, group, user),
-                 'scratch60': '/gpfs/loomis/scratch60/{0}/{1}/{2}'.format(metagroup, group, user)
-                 }
-
-dirs['farnam'] = {'home': '/gpfs/ysm/home/{0}'.format(user),
-                  'project': '/gpfs/ysm/project/{0}'.format(user),
-                  'scratch60': '/gpfs/ysm/scratch60/{0}'.format(user)
-                  }
+            print(cluster.title())
+            print('=====')
+            if os.path.exists(dirs[cluster]['home']):
+                print('{0:9} {1}'.format('home', dirs[cluster]['home']))
+            if os.path.exists(dirs[cluster]['project']):
+                print('{0:9} {1}'.format('project', dirs[cluster]['project']))
+            if os.path.exists(dirs[cluster]['scratch60']):
+                print('{0:9} {1}'.format('scratch60', dirs[cluster]['scratch60']))
+            print(' ')
 
 
-if os.path.exists(dirs['omega']['home']): #or os.path.exists(dirs['omega']['scratch']):
-    print 'Omega'
-    print '====='
-    if os.path.exists(dirs['omega']['home']):
-        print'{0:9} {1}'.format('home', dirs['omega']['home'])
-#    if os.path.exists(dirs['omega']['scratch']):
-#        print'{0:9} {1}'.format('scratch', dirs['omega']['scratch'])
-    print ' '
+if (__name__ == '__main__'):
 
-if (os.path.exists(dirs['grace']['home']) or os.path.exists(dirs['grace']['project']) or
-        os.path.exists(dirs['grace']['scratch60'])):
+    user, group = get_args()
 
-    print 'Grace'
-    print '====='
-    if os.path.exists(dirs['grace']['home']):
-        print'{0:9} {1}'.format('home', dirs['grace']['home'])
-    if os.path.exists(dirs['grace']['project']):
-        print'{0:9} {1}'.format('project', dirs['grace']['project'])
-    if os.path.exists(dirs['grace']['scratch60']):
-        print'{0:9} {1}'.format('scratch60', dirs['grace']['scratch60'])
-    print ' '
+    dirs = construct_dirs(user, group)
 
-
-if (os.path.exists(dirs['farnam']['home']) or os.path.exists(dirs['farnam']['project']) or
-        os.path.exists(dirs['farnam']['scratch60'])):
-
-    print 'Farnam (only accessible from Farnam)'
-    print '====='
-    if os.path.exists(dirs['farnam']['home']):
-        print'{0:9} {1}'.format('home', dirs['farnam']['home'])
-    if os.path.exists(dirs['farnam']['project']):
-        print'{0:9} {1}'.format('project', dirs['farnam']['project'])
-    if os.path.exists(dirs['farnam']['scratch60']):
-        print'{0:9} {1}'.format('scratch60', dirs['farnam']['scratch60'])
-    print ' '
+    print_output(dirs)
