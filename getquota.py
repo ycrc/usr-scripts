@@ -430,7 +430,11 @@ if (__name__ == '__main__'):
 
     # quota summary
     if is_me:
-        summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
+        try:
+            summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
+        except:
+            summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
+            is_me = False
     else:
         summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
