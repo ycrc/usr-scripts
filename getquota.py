@@ -1,13 +1,15 @@
 #!/usr/bin/env python2
-
 import os
 import sys
 import subprocess
 import time
-
+import shlex
+import fcntl
+from threading import Timer
 import pwd
 import grp
 import getpass
+import re
 
 user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
@@ -197,7 +199,13 @@ def check_limits(summary_data):
 
     at_limit = {'byte': False,
                  'file': False}
-
+    
+    # if you can, avoid the possiblity of dividing by zero
+    if summary_data[4] == 0:
+        return at_limit
+    if summary_data[6] == 0:
+        return at_limit
+    
     if (summary_data[4]-summary_data[3])/float(summary_data[4]) <= 0.05:
         at_limit['byte'] = True
     if (summary_data[6]-summary_data[5])/float(summary_data[6]) <= 0.05:
@@ -282,41 +290,78 @@ def compile_usage_details(filesets, group_members, cluster, data):
 
     return '\n----\n'.join(output)
 
+# try to end something cleanly, ..for whatever reason
+def kill_cmd(cmd):
+    try:
+        cmd.stdout.close()
+        cmd.stderr.close()
+        cmd.kill()
+    except:
+        pass
 
+# try to read something, ..but don't assume that you can
+def nonblocking_read(output):
+    try:
+        fd = output.fileno()
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+        out= output.read()
+        if out !=None:
+            return out
+        else:
+            return b''
+    except:
+        return b''
+
+# run something, but discard any errors it may generate and give it a 4-second deadline to complete 
+def external_program_filter(cmd):
+    timeout = 4
+    result = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    timer = Timer(timeout, kill_cmd, [result])
+    timer.start()
+    command_output = ''
+    while result.poll() is None :
+        time.sleep(0.5)
+        command_output+= str(nonblocking_read(result.stdout).decode("utf-8"))
+    timer.cancel()
+    return (command_output)
+
+# try to collect and return live quota data or return nothing. This function calls the expensive external
+# command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not 
+# going to bother to address this, but if anyone has some free time on their hands then improving this function would 
+# be an enjoyable way to spend some of it.
 def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
-
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
     if cluster == 'milgram':
         output = ['', '']
     else:
         output = ['', '', '']
-
     for device, filesystem in zip(devices, filesystems):
-
         query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-        result = subprocess.check_output([query], shell=True)
-
+        result = external_program_filter(query)
         # user based home quotas
         if cluster in user_quotas_clusters and device not in ['slayman']:
-            query = '{0} -eu {1} -Y --block-size auto {2} | grep home'.format(quota_script, user, device)
-            result += subprocess.check_output([query], shell=True)
+            query = '{0} -eu {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+            result += external_program_filter(query)
+        # make sure that result holds valid data
+        if not re.match("^mmlsq", result):
+          result = None
 
         for quota in result.split('\n'):
             if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
                 continue
+            if ( 'USR' in quota and not 'home' in quota ):
+                continue
             fileset, _, section = parse_quota_line(quota, False, cluster)
-
             place_output(output, section, cluster, fileset)
-
         for fileset in filesets:
             # query all the pi filesets
             if is_pi_fileset(fileset):
                 # check if this fileset is on this device
                 if all_filesets[fileset] == filesystem:
                     query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
-                    pi_quota = subprocess.check_output([query], shell=True)
+                    pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, cluster)[-1])
-
     return output
 
 
