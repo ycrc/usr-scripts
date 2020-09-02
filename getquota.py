@@ -409,7 +409,7 @@ def print_output(details_data, summary_data, group_name, timestamp, is_me, clust
     header += "for help at hpc@yale.edu\n\n"
 
     header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
-    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GB)', ' File Count')
+    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
     header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
@@ -421,8 +421,8 @@ def print_output(details_data, summary_data, group_name, timestamp, is_me, clust
         time = timestamp
 
     header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GB)',
-                                                             ' Quota (GB)', ' File Count', ' File Limit', ' Backup', ' Purged')
+    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
+                                                             ' Quota (GiB)', ' File Count', ' File Limit', ' Backup', ' Purged')
     header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*13, '-'*7, '-'*12,
                                                            ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
                                                            ' '+'-'*9, ' '+'-'*9)
