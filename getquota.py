@@ -1,15 +1,17 @@
 #!/usr/bin/env python2
-import os
-import sys
-import subprocess
-import time
-import shlex
 import fcntl
-from threading import Timer
-import pwd
-import grp
 import getpass
+import grp
+import os
+import pickle
+import pwd
 import re
+import shlex
+import stat
+import subprocess
+import sys
+import time
+from threading import Timer
 
 user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
@@ -326,6 +328,19 @@ def external_program_filter(cmd):
     timer.cancel()
     return (command_output)
 
+
+def localcache_quota_data(user):
+    output = ''
+    if os.path.isfile('/tmp/.'+user+'gqlc'):
+        lcmtime = time.time() - os.stat('/tmp/.'+user+'gqlc')[stat.ST_MTIME]
+
+        if lcmtime > 0 and lcmtime <= 300:
+            file = open('/tmp/.%s' % user+'gqlc', 'r')
+            output = pickle.load(file)
+
+    return output
+
+
 # try to collect and return live quota data or return nothing. This function calls the expensive external
 # command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not 
 # going to bother to address this, but if anyone has some free time on their hands then improving this function would 
@@ -362,6 +377,11 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                     query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
                     pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, cluster)[-1])
+                    
+    file = open('/tmp/.%s' % user+'gqlc', 'w')
+    pickle.dump(output, file)
+    file.close()
+    
     return output
 
 
@@ -475,12 +495,15 @@ if (__name__ == '__main__'):
 
     # quota summary
     if is_me:
-        try:
-            summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
-        except:
-            summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
-            is_me = False
+        summary_data = localcache_quota_data(user)
+        if summary_data is '':
+            try:
+                summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
+            except:
+                summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
+                is_me = False
     else:
         summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
     print_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+    
