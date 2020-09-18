@@ -101,7 +101,21 @@ def get_group_members(group_id, cluster):
     return group_members
 
 
-def parse_quota_line(line, details, cluster):
+def is_pi_fileset(fileset, section=None):
+    if section is not None and 'FILESET' not in section:
+        return False
+
+    if 'pi' in fileset:
+            return True
+    elif 'scratch60' in fileset or 'home' in fileset or 'project' in fileset:
+        return False
+    elif 'apps' in fileset:
+        return False
+    else:
+        return True
+
+
+def parse_quota_line(line, details, filesystem):
 
     split = line.split(':')
 
@@ -115,6 +129,9 @@ def parse_quota_line(line, details, cluster):
         # name
         name = split[9]
         fileset = split[-2]
+
+    if is_pi_fileset(fileset):
+        fileset = filesystem.replace('/gpfs/','')+':'+fileset
 
     # blockUsage+blockInDoubt, blockQuota
     # filesUsage+filesInDoubt, filesQuota
@@ -143,20 +160,6 @@ def place_output(output, section, cluster, fileset):
             output[2] = section
 
 
-def is_pi_fileset(fileset, section=None):
-    if section is not None and 'FILESET' not in section:
-        return False
-
-    if 'pi' in fileset:
-            return True
-    elif 'scratch60' in fileset or 'home' in fileset or 'project' in fileset:
-        return False
-    elif 'apps' in fileset:
-        return False
-    else:
-        return True
-
-
 def validate_filesets(filesets, cluster, group, all_filesets):
 
     if cluster in ['farnam', 'ruddle', 'grace']:
@@ -173,7 +176,7 @@ def validate_filesets(filesets, cluster, group, all_filesets):
 def format_for_details(data):
 
     # fileset, user, bytes, file count
-    return '{0:14}{1:6}{2:10}{3:14,}'.format(data[0], data[1],
+    return '{0:23}{1:6}{2:10}{3:14,}'.format(data[0], data[1],
                                              data[3], data[5])
 
 
@@ -182,7 +185,7 @@ def format_for_summary(data, cluster):
     backup = 'No'
     purge = 'No'
 
-    fileset = data[1]
+    fileset = data[0]
 
     if 'home' in fileset or cluster == 'milgram':
         backup = 'Yes'
@@ -191,7 +194,7 @@ def format_for_summary(data, cluster):
         purge = '60 days'
 
     # fileset, userid, quota_type, bytes, byte quota, file count, file limit
-    return '{0:14}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
+    return '{0:23}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
                                                                        data[3], data[4], 
                                                                        data[5], data[6],
                                                                        backup, purge)
@@ -247,7 +250,7 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
                 if 'USR' not in line or 'root' in line:
                     continue
 
-                fileset, user, user_data = parse_quota_line(line, True, cluster)
+                fileset, user, user_data = parse_quota_line(line, True, filesystem)
 
                 if fileset not in usage_data.keys():
                     usage_data[fileset] = {}
@@ -342,7 +345,7 @@ def localcache_quota_data(user):
 
 
 # try to collect and return live quota data or return nothing. This function calls the expensive external
-# command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not 
+# command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not
 # going to bother to address this, but if anyone has some free time on their hands then improving this function would 
 # be an enjoyable way to spend some of it.
 def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
@@ -367,7 +370,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                 continue
             if ( 'USR' in quota and not 'home' in quota ):
                 continue
-            fileset, _, section = parse_quota_line(quota, False, cluster)
+            fileset, _, section = parse_quota_line(quota, False, filesystem)
             place_output(output, section, cluster, fileset)
         for fileset in filesets:
             # query all the pi filesets
@@ -376,7 +379,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                 if all_filesets[fileset] == filesystem:
                     query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
                     pi_quota = external_program_filter(query)
-                    output.append(parse_quota_line(pi_quota.split('\n')[1], False, cluster)[-1])
+                    output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
                     
     file = open('/tmp/.%s' % user+'gqlc', 'w')
     pickle.dump(output, file)
@@ -405,7 +408,7 @@ def cached_quota_data(filesystems, filesets, group, user, cluster):
                     if cluster not in user_quotas_clusters or user is None:
                         continue
 
-                fileset, name, section = parse_quota_line(line, False, cluster)
+                fileset, name, section = parse_quota_line(line, False, filesystem)
 
                 if fileset in filesets:
                     if 'home' in fileset and cluster in user_quotas_clusters:
@@ -424,13 +427,13 @@ def cached_quota_data(filesystems, filesets, group, user, cluster):
 
 def print_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
 
-    header = "This script shows information about your quotas on the current gpfs filesystem.\n"
+    header = "This script shows information about your quotas on the current cluster.\n"
     header += "If you plan to poll this sort of information extensively, please contact us\n"
     header += "for help at hpc@yale.edu\n\n"
 
     header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
-    header += '{0:14}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
-    header += '{0:14}{1:6}{2:10}{3:14}'.format('-'*13, '-'*5, '-'*10, ' '+'-'*13)
+    header += '{0:23}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
+    header += '{0:23}{1:6}{2:10}{3:14}'.format('-'*22, '-'*5, '-'*10, ' '+'-'*13)
 
     print(header)
     print(details_data)
@@ -441,9 +444,9 @@ def print_output(details_data, summary_data, group_name, timestamp, is_me, clust
         time = timestamp
 
     header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
+    header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
                                                              ' Quota (GiB)', ' File Count', ' File Limit', ' Backup', ' Purged')
-    header += '{0:14}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*13, '-'*7, '-'*12,
+    header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
                                                            ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
                                                            ' '+'-'*9, ' '+'-'*9)
 
@@ -471,20 +474,19 @@ if (__name__ == '__main__'):
     if cluster is None:
         cluster = get_cluster()
 
-    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/slayman'],
-                   'ruddle': ['/gpfs/ycga'],
-                   'grace': ['/gpfs/loomis'],
+    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs', '/gpfs/slayman'],
+                   'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
+                   'grace': ['/gpfs/loomis', '/gpfs/gibbs'],
                    'milgram': ['/gpfs/milgram'],
-                   'omega': ['/gpfs/loomis']
                    }
-    devices = {'farnam': ['ysm-gpfs', 'slayman'],
-               'ruddle': ['ycga-gpfs'],
+    devices = {'farnam': ['ysm-gpfs', 'slayman', 'gibbs'],
+               'ruddle': ['ycga-gpfs', 'gibbs'],
                'milgram': ['milgram'],
-               'grace': ['loomis'],
-               'omega': ['loomis']}
+               'grace': ['loomis', 'gibbs'],
+               }
 
     # usage details
-    timestamp = time.strftime('%b %d %Y %H:%M', time.gmtime(os.path.getmtime(filesystems[cluster][0]
+    timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
                                                                              + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
