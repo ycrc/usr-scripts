@@ -67,7 +67,8 @@ def get_netid(uid):
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
     try:
-        query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
+        query = 'LDAPTLS_REQCERT=never LDAPTLS_CACERTDIR="" ldapsearch'
+        query += "-xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
         query += " cn=client,o=hpc.yale.edu -w hpc@Client"
         query += " 'uidNumber={1}'".format(cluster, uid)
         query += " uid | grep '^uid'"
