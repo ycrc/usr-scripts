@@ -356,11 +356,11 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
     else:
         output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
-        query = '{0} -eg {1} -Y --block-size auto {2}'.format(quota_script, group, device)
+        query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
         result = external_program_filter(query)
         # user based home quotas
         if cluster in user_quotas_clusters and device not in ['slayman']:
-            query = '{0} -eu {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+            query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
             result += external_program_filter(query)
         # make sure that result holds valid data
         if not re.match("^mmlsq", result):
@@ -378,7 +378,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
             if is_pi_fileset(fileset):
                 # check if this fileset is on this device
                 if all_filesets[fileset] == filesystem:
-                    query = '{0} -ej {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
+                    query = '{0} -j {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
                     pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
                     
