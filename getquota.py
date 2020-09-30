@@ -378,7 +378,8 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
             if is_pi_fileset(fileset):
                 # check if this fileset is on this device
                 if all_filesets[fileset] == filesystem:
-                    query = '{0} -j {1} -Y --block-size auto {2}'.format(quota_script, fileset, device)
+                    fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
+                    query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
                     pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
                     
