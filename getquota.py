@@ -11,6 +11,7 @@ import stat
 import subprocess
 import sys
 import time
+from datetime import datetime
 from threading import Timer
 
 user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
@@ -18,30 +19,41 @@ user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 def get_args():
 
     cluster = None
+    is_me = True
+    print_format = 'cli'
 
-    if len(sys.argv) == 3:
-        if sys.argv[1] == '-u':
-            user = sys.argv[2]
+    i = 1
+
+    user = getpass.getuser()
+    while i < len(sys.argv) :
+        if sys.argv[i] == '-u':
+            user = sys.argv[i+1]
             is_me = False
+            i += 2
 
-        elif sys.argv[1] == '-g':
+        elif sys.argv[i] == '-g':
+            print "group"
             user = None
             try:
-                group_id = grp.getgrnam(sys.argv[2]).gr_gid
+                group_id = grp.getgrnam(sys.argv[i+1]).gr_gid
             except:
-                sys.exit('Unknown group: '+sys.argv[2])
+                sys.exit('Unknown group: '+sys.argv[i+1])
             is_me = False
+            i += 2
 
-        elif sys.argv[1] == '-c':
-            cluster = sys.argv[2]
+        elif sys.argv[i] == '-c' :
+            cluster = sys.argv[i+1]
             user = getpass.getuser()
             is_me = True
+            i += 2
+
+        elif sys.argv[i] == '-e':
+            is_me = True
+            print_format = 'email'
+            i += 1
+
         else:
             sys.exit("Unknown argument. Use -u <user>, -g <group> or no argument for current user")
-
-    else:
-        user = getpass.getuser()
-        is_me = True
 
     if user is not None:
         try:
@@ -49,7 +61,7 @@ def get_args():
         except:
             sys.exit('Unknown user: '+user)
 
-    return user, group_id, cluster, is_me
+    return user, group_id, cluster, is_me, print_format
 
 
 def get_cluster():
@@ -87,9 +99,10 @@ def get_group_members(group_id, cluster):
         f.readline()
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
-    query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
+    query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0} -b o=hpc.yale.edu -D".format(mgt)
     query += " cn=client,o=hpc.yale.edu -w hpc@Client"
-    query += " '(& ({0}HomeDirectory=*) (gidNumber={1}))'".format(cluster, group_id)
+    query += " '(gidNumber={0})'".format(group_id)
+#    query += " '(& ({0}HomeDirectory=*) (gidNumber={1}))'".format(cluster, group_id)
     query += " uid | grep '^uid'"
     result = subprocess.check_output([query], shell=True)
 
@@ -163,11 +176,11 @@ def place_output(output, section, cluster, fileset):
 
 def validate_filesets(filesets, cluster, group, all_filesets):
 
-    if cluster in ['farnam', 'ruddle', 'grace']:
+    if cluster in ['farnam', 'ruddle', 'grace', 'milgram']:
         if 'project' not in filesets:
             filesets.append('project')
-    if 'scratch60' not in filesets:
-        filesets.append('scratch60')
+        if 'scratch60' not in filesets:
+            filesets.append('scratch60')
 
     for fileset in all_filesets.keys():
         if group in fileset and fileset not in filesets:
@@ -427,17 +440,19 @@ def cached_quota_data(filesystems, filesets, group, user, cluster):
     return output
 
 
-def print_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
+def print_cli_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
 
-    header = "This script shows information about your quotas on the current cluster.\n"
-    header += "If you plan to poll this sort of information extensively, please contact us\n"
-    header += "for help at hpc@yale.edu\n\n"
-
-    header += '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
-    header += '{0:23}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
-    header += '{0:23}{1:6}{2:10}{3:14}'.format('-'*22, '-'*5, '-'*10, ' '+'-'*13)
+    header = "This script shows information about your quotas on {0}.\n".format(cluster)
+    header += "If you plan to poll this sort of information extensively,\n"
+    header += "please contact us for help at hpc@yale.edu\n"
 
     print(header)
+
+    details_header = '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
+    details_header += '{0:23}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
+    details_header += '{0:23}{1:6}{2:10}{3:14}'.format('-'*22, '-'*5, '-'*10, ' '+'-'*13)
+
+    print(details_header)
     print(details_data)
 
     if is_me:
@@ -445,14 +460,15 @@ def print_output(details_data, summary_data, group_name, timestamp, is_me, clust
     else:
         time = timestamp
 
-    header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
-                                                             ' Quota (GiB)', ' File Count', ' File Limit', ' Backup', ' Purged')
-    header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
-                                                           ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
-                                                           ' '+'-'*9, ' '+'-'*9)
+    summary_header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
+    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
+                                                                                 ' Quota (GiB)', ' File Count',
+                                                                                 ' File Limit', ' Backup', ' Purged')
+    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
+                                                                               ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
+                                                                               ' '+'-'*9, ' '+'-'*9)
 
-    print(header)
+    print(summary_header)
     for summary in summary_data:
         if summary:
             print(format_for_summary(summary, cluster))
@@ -468,9 +484,49 @@ def print_output(details_data, summary_data, group_name, timestamp, is_me, clust
         print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
 
+def print_email_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
+
+    header = "Our system has detected that you are approaching or have hit a \n"
+    header += "storage quota on {0}.\n".format(cluster)
+    header += "See below for details on your usage."
+
+    print(header)
+
+    warnings = []
+    for summary in summary_data:
+        if summary:
+            warnings += limits_warnings(summary)
+
+    if len(warnings):
+        print('\n'.join(warnings))
+
+    time = datetime.now().strftime("%b %d %Y, %H:%M:%S")
+
+    summary_header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
+    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
+                                                                                 ' Quota (GiB)', ' File Count',
+                                                                                 ' File Limit', ' Backup', ' Purged')
+    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
+                                                                               ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
+                                                                               ' '+'-'*9, ' '+'-'*9)
+
+    print(summary_header)
+    for summary in summary_data:
+        if summary:
+            print(format_for_summary(summary, cluster))
+
+    print('\n')
+
+    details_header = '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
+    details_header += '{0:23}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
+    details_header += '{0:23}{1:6}{2:10}{3:14}'.format('-'*22, '-'*5, '-'*10, ' '+'-'*13)
+
+    print(details_header)
+    print(details_data)
+
 if (__name__ == '__main__'):
 
-    user, group_id, cluster, is_me = get_args()
+    user, group_id, cluster, is_me, print_format = get_args()
     group_name = grp.getgrgid(group_id).gr_name
 
     if cluster is None:
@@ -478,13 +534,17 @@ if (__name__ == '__main__'):
 
     filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs', '/gpfs/slayman'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
-                   'grace': ['/gpfs/loomis', '/gpfs/gibbs'],
+                   'grace': ['/gpfs/loomis', '/gpfs/gibbs', '/gpfs/slayman'],
                    'milgram': ['/gpfs/milgram'],
+                   'slayman': ['/gpfs/slayman'],
+                   'gibbs' : ['/gpfs/gibbs']
                    }
     devices = {'farnam': ['ysm-gpfs', 'slayman', 'gibbs'],
                'ruddle': ['ycga-gpfs', 'gibbs'],
                'milgram': ['milgram'],
                'grace': ['loomis', 'gibbs'],
+               'slayman': ['slayman'],
+               'gibbs': ['gibbs']
                }
 
     # usage details
@@ -509,5 +569,10 @@ if (__name__ == '__main__'):
     else:
         summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
-    print_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+    if print_format == 'cli':
+        print_cli_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+    elif print_format == 'email':
+        print_email_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+    else:
+        sys.exit('unknown print format: ', print_format) 
     
