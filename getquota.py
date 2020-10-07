@@ -16,6 +16,7 @@ from threading import Timer
 
 user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
+
 def get_args():
 
     cluster = None
@@ -25,7 +26,7 @@ def get_args():
     i = 1
 
     user = getpass.getuser()
-    while i < len(sys.argv) :
+    while i < len(sys.argv):
         if sys.argv[i] == '-u':
             user = sys.argv[i+1]
             is_me = False
@@ -41,7 +42,7 @@ def get_args():
             is_me = False
             i += 2
 
-        elif sys.argv[i] == '-c' :
+        elif sys.argv[i] == '-c':
             cluster = sys.argv[i+1]
             user = getpass.getuser()
             is_me = True
@@ -145,7 +146,7 @@ def parse_quota_line(line, details, filesystem):
         fileset = split[-2]
 
     if is_pi_fileset(fileset):
-        fileset = filesystem.replace('/gpfs/','')+':'+fileset
+        fileset = filesystem.replace('/gpfs/', '')+':'+fileset
 
     # blockUsage+blockInDoubt, blockQuota
     # filesUsage+filesInDoubt, filesQuota
@@ -157,11 +158,7 @@ def parse_quota_line(line, details, filesystem):
 
 def place_output(output, section, cluster, fileset):
     if 'home' in fileset:
-        #if (('omega' in fileset and cluster != 'omega') or
-        #        ('grace' in fileset and cluster != 'grace')):
-        #    pass
-        #else:
-            output[0] = section
+        output[0] = section
 
     elif 'project' in fileset:
         output[1] = section
@@ -209,7 +206,7 @@ def format_for_summary(data, cluster):
 
     # fileset, userid, quota_type, bytes, byte quota, file count, file limit
     return '{0:23}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
-                                                                       data[3], data[4], 
+                                                                       data[3], data[4],
                                                                        data[5], data[6],
                                                                        backup, purge)
 
@@ -217,14 +214,14 @@ def format_for_summary(data, cluster):
 def check_limits(summary_data):
 
     at_limit = {'byte': False,
-                 'file': False}
-    
+                'file': False}
+
     # if you can, avoid the possiblity of dividing by zero
     if summary_data[4] == 0:
         return at_limit
     if summary_data[6] == 0:
         return at_limit
-    
+
     if (summary_data[4]-summary_data[3])/float(summary_data[4]) <= 0.05:
         at_limit['byte'] = True
     if (summary_data[6]-summary_data[5])/float(summary_data[6]) <= 0.05:
@@ -244,7 +241,7 @@ def limits_warnings(summary_data):
     # file limit
     if at_limit['file']:
         warnings.append("Warning!!! You are at or near your file count limit in the %s fileset. "
-                         "Reduce the number of files to avoid issues." % summary_data[0])
+                        "Reduce the number of files to avoid issues." % summary_data[0])
     return warnings
 
 
@@ -309,6 +306,7 @@ def compile_usage_details(filesets, group_members, cluster, data):
 
     return '\n----\n'.join(output)
 
+
 # try to end something cleanly, ..for whatever reason
 def kill_cmd(cmd):
     try:
@@ -318,30 +316,32 @@ def kill_cmd(cmd):
     except:
         pass
 
+
 # try to read something, ..but don't assume that you can
 def nonblocking_read(output):
     try:
         fd = output.fileno()
         fl = fcntl.fcntl(fd, fcntl.F_GETFL)
         fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-        out= output.read()
-        if out !=None:
+        out = output.read()
+        if out is not None:
             return out
         else:
             return b''
     except:
         return b''
 
-# run something, but discard any errors it may generate and give it a 4-second deadline to complete 
+
+# run something, but discard any errors it may generate and give it a 4-second deadline to complete
 def external_program_filter(cmd):
     timeout = 4
     result = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     timer = Timer(timeout, kill_cmd, [result])
     timer.start()
     command_output = ''
-    while result.poll() is None :
+    while result.poll() is None:
         time.sleep(0.5)
-        command_output+= str(nonblocking_read(result.stdout).decode("utf-8"))
+        command_output += str(nonblocking_read(result.stdout).decode("utf-8"))
     timer.cancel()
     return (command_output)
 
@@ -360,7 +360,7 @@ def localcache_quota_data(user):
 
 # try to collect and return live quota data or return nothing. This function calls the expensive external
 # command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not
-# going to bother to address this, but if anyone has some free time on their hands then improving this function would 
+# going to bother to address this, but if anyone has some free time on their hands then improving this function would
 # be an enjoyable way to spend some of it.
 def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
@@ -377,12 +377,12 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
             result += external_program_filter(query)
         # make sure that result holds valid data
         if not re.match("^mmlsq", result):
-          result = None
+            result = None
 
         for quota in result.split('\n'):
             if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
                 continue
-            if ( 'USR' in quota and not 'home' in quota ):
+            if ('USR' in quota and 'home' not in quota):
                 continue
             fileset, _, section = parse_quota_line(quota, False, filesystem)
             place_output(output, section, cluster, fileset)
@@ -395,11 +395,11 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                     query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
                     pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
-                    
+
     file = open('/tmp/.%s' % user+'gqlc', 'w')
     pickle.dump(output, file)
     file.close()
-    
+
     return output
 
 
@@ -524,6 +524,7 @@ def print_email_output(details_data, summary_data, group_name, timestamp, is_me,
     print(details_header)
     print(details_data)
 
+
 if (__name__ == '__main__'):
 
     user, group_id, cluster, is_me, print_format = get_args()
@@ -537,19 +538,19 @@ if (__name__ == '__main__'):
                    'grace': ['/gpfs/loomis', '/gpfs/gibbs', '/gpfs/slayman'],
                    'milgram': ['/gpfs/milgram'],
                    'slayman': ['/gpfs/slayman'],
-                   'gibbs' : ['/gpfs/gibbs']
+                   'gibbs': ['/gpfs/gibbs']
                    }
-    devices = {'farnam': ['ysm-gpfs', 'slayman', 'gibbs'],
+    devices = {'farnam': ['ysm-gpfs', 'gibbs', 'slayman'],
                'ruddle': ['ycga-gpfs', 'gibbs'],
                'milgram': ['milgram'],
-               'grace': ['loomis', 'gibbs'],
+               'grace': ['loomis', 'gibbs', 'slayman'],
                'slayman': ['slayman'],
                'gibbs': ['gibbs']
                }
 
     # usage details
     timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
-                                                                             + '/.mmrepquota/current')))
+                                                                                + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
     usage_data, filesets, all_filesets = read_usage_file(filesystems[cluster], user, group_members, cluster)
@@ -562,7 +563,8 @@ if (__name__ == '__main__'):
         summary_data = localcache_quota_data(user)
         if summary_data is '':
             try:
-                summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets, all_filesets, user, group_id, cluster)
+                summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets,
+                                               all_filesets, user, group_id, cluster)
             except:
                 summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
                 is_me = False
@@ -574,5 +576,4 @@ if (__name__ == '__main__'):
     elif print_format == 'email':
         print_email_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
     else:
-        sys.exit('unknown print format: ', print_format) 
-    
+        sys.exit('unknown print format: ', print_format)
