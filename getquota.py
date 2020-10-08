@@ -165,19 +165,17 @@ def place_output(output, section, cluster, fileset):
 
     # scratch60
     elif 'scratch60' in fileset:
-        if cluster == 'milgram':
-            output[1] = section
-        else:
-            output[2] = section
+        output[2] = section
 
 
 def validate_filesets(filesets, cluster, group, all_filesets):
 
-    if cluster in ['farnam', 'ruddle', 'grace', 'milgram']:
-        if 'project' not in filesets:
-            filesets.append('project')
-        if 'scratch60' not in filesets:
-            filesets.append('scratch60')
+#   kln: I don't think this part is necessary anymore
+#    if cluster in ['farnam', 'ruddle', 'grace', 'milgram']:
+#        if 'project' not in filesets:
+#            filesets.append('project')
+#    if 'scratch60' not in filesets:
+#        filesets.append('scratch60')
 
     for fileset in all_filesets.keys():
         if group in fileset and fileset not in filesets:
@@ -279,10 +277,7 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
 
 def compile_usage_details(filesets, group_members, cluster, data):
 
-    if cluster == 'milgram':
-        output = ['', '']
-    else:
-        output = ['', '', '']
+    output = ['', '', '']
 
     for fileset in sorted(filesets):
         section = []
@@ -303,6 +298,9 @@ def compile_usage_details(filesets, group_members, cluster, data):
 
     # don't show home data
     output.pop(0)
+    for i in range(len(output)-1):
+        if len(output[i]) == 0:
+            output.pop(i) 
 
     return '\n----\n'.join(output)
 
@@ -364,10 +362,7 @@ def localcache_quota_data(user):
 # be an enjoyable way to spend some of it.
 def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
-    if cluster == 'milgram':
-        output = ['', '']
-    else:
-        output = ['', '', '']
+    output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
         query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
         result = external_program_filter(query)
@@ -405,10 +400,7 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
 
 def cached_quota_data(filesystems, filesets, group, user, cluster):
 
-    if cluster == 'milgram':
-        output = ['', '']
-    else:
-        output = ['', '', '']
+    output = ['', '', '']
 
     for filesystem in filesystems:
 
