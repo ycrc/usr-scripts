@@ -14,8 +14,9 @@ import time
 from datetime import datetime
 from threading import Timer
 
-user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
+debug = False
+user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
 def get_args():
 
@@ -365,10 +366,16 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
     output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
         query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-        result = external_program_filter(query)
+	if debug:
+            result = subprocess.check_output([query], shell=True)
+	else:
+	    result = external_program_filter(query)
         # user based home quotas
-        if cluster in user_quotas_clusters and device not in ['slayman']:
+        if cluster in user_quotas_clusters and device not in ['slayman', 'gibbs']:
             query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+        if debug:
+            result += subprocess.check_output([query], shell=True)
+        else:
             result += external_program_filter(query)
         # make sure that result holds valid data
         if not re.match("^mmlsq", result):
@@ -388,7 +395,10 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
                 if all_filesets[fileset] == filesystem:
                     fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
                     query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
-                    pi_quota = external_program_filter(query)
+		    if debug:
+                        pi_quota = subprocess.check_output([query], shell=True)
+                    else:
+                        pi_quota = external_program_filter(query)
                     output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
 
     file = open('/tmp/.%s' % user+'gqlc', 'w')
@@ -551,17 +561,21 @@ if (__name__ == '__main__'):
     details_data = compile_usage_details(filesets, group_members, cluster, usage_data)
 
     # quota summary
-    if is_me:
-        summary_data = localcache_quota_data(user)
-        if summary_data is '':
-            try:
-                summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets,
+    if debug:
+        summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets,
                                                all_filesets, user, group_id, cluster)
-            except:
-                summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
-                is_me = False
     else:
-        summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
+        if is_me:
+            summary_data = localcache_quota_data(user)
+            if summary_data is '':
+                try:
+                    summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets,
+                                                   all_filesets, user, group_id, cluster)
+                except:
+                    summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
+                    is_me = False
+        else:
+             summary_data = cached_quota_data(filesystems[cluster], filesets, group_name, user, cluster)
 
     if print_format == 'cli':
         print_cli_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
