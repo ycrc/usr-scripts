@@ -34,7 +34,6 @@ def get_args():
             i += 2
 
         elif sys.argv[i] == '-g':
-            print "group"
             user = None
             try:
                 group_id = grp.getgrnam(sys.argv[i+1]).gr_gid
@@ -151,8 +150,8 @@ def parse_quota_line(line, details, filesystem):
 
     # blockUsage+blockInDoubt, blockQuota
     # filesUsage+filesInDoubt, filesQuota
-    data = [fileset, name, quota_type, int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[11])/1024/1024,
-            int(split[15])+int(split[18]), int(split[16])]
+    data = [fileset, name, quota_type, int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[12])/1024/1024,
+            int(split[15])+int(split[18]), int(split[17])]
 
     return fileset, name, data
 
