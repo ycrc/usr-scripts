@@ -14,12 +14,12 @@ import time
 from datetime import datetime
 from threading import Timer
 
-
-debug = False
 user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 
 def get_args():
 
+    global debug
+    debug = False
     cluster = None
     is_me = True
     print_format = 'cli'
@@ -28,7 +28,11 @@ def get_args():
 
     user = getpass.getuser()
     while i < len(sys.argv):
-        if sys.argv[i] == '-u':
+        if sys.argv[i] == '-d':
+            debug = True
+            i += 1
+
+        elif sys.argv[i] == '-u':
             user = sys.argv[i+1]
             is_me = False
             i += 2
@@ -361,6 +365,8 @@ def localcache_quota_data(user):
 # going to bother to address this, but if anyone has some free time on their hands then improving this function would
 # be an enjoyable way to spend some of it.
 def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, cluster):
+
+    global debug
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
     output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
@@ -527,6 +533,7 @@ def print_email_output(details_data, summary_data, group_name, timestamp, is_me,
 
 
 if (__name__ == '__main__'):
+    global debug
 
     user, group_id, cluster, is_me, print_format = get_args()
     group_name = grp.getgrgid(group_id).gr_name
@@ -561,6 +568,7 @@ if (__name__ == '__main__'):
 
     # quota summary
     if debug:
+        print("**Debug Output Enabled**")  
         summary_data = live_quota_data(devices[cluster], filesystems[cluster], filesets,
                                                all_filesets, user, group_id, cluster)
     else:
