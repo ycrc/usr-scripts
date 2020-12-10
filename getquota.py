@@ -19,7 +19,9 @@ user_quotas_clusters = ['farnam', 'ruddle', 'milgram', 'grace']
 def get_args():
 
     global debug
+    global active_users_only
     debug = False
+    active_users_only = False
     cluster = None
     is_me = True
     print_format = 'cli'
@@ -30,6 +32,10 @@ def get_args():
     while i < len(sys.argv):
         if sys.argv[i] == '-d':
             debug = True
+            i += 1
+
+        elif sys.argv[i] == '-a':
+            active_users_only = True
             i += 1
 
         elif sys.argv[i] == '-u':
@@ -100,14 +106,19 @@ def get_netid(uid):
 
 def get_group_members(group_id, cluster):
 
+    global active_users_only
+
     with open('/etc/yalehpc', 'r') as f:
         f.readline()
         mgt = f.readline().split('=')[1].replace('"', '').rstrip()
 
     query = "LDAPTLS_REQCERT=never ldapsearch -xLLL -H ldaps://{0} -b o=hpc.yale.edu -D".format(mgt)
     query += " cn=client,o=hpc.yale.edu -w hpc@Client"
-    query += " '(gidNumber={0})'".format(group_id)
-#    query += " '(& ({0}HomeDirectory=*) (gidNumber={1}))'".format(cluster, group_id)
+
+    if active_users_only:
+        query += " '(& ({0}HomeDirectory=*) (gidNumber={1}))'".format(cluster, group_id)
+    else:
+        query += " '(gidNumber={0})'".format(group_id)
     query += " uid | grep '^uid'"
     result = subprocess.check_output([query], shell=True)
 
