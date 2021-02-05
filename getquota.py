@@ -175,7 +175,7 @@ def place_output(output, section, cluster, fileset):
     if 'home' in fileset:
         output[0] = section
 
-    elif 'project' in fileset:
+    elif 'project' in fileset and 'pi' not in fileset:
         output[1] = section
 
     # scratch60
