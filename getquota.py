@@ -390,9 +390,9 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
     output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
         query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-	    if debug:
+        if debug:
             result = subprocess.check_output([query], shell=True)
-	    else:
+        else:
             result = external_program_filter(query)
         # user based home quotas
         if cluster in user_quotas_clusters and device not in ['slayman', 'gibbs']:
