@@ -196,6 +196,10 @@ def validate_filesets(filesets, cluster, group, all_filesets):
         if group in fileset and fileset not in filesets:
             filesets.append(fileset)
 
+        if fileset == 'loomis:pi_balou':
+            if fileset in filesets:
+                filesets.remove(fileset)
+
 
 def format_for_details(data):
 
@@ -266,6 +270,10 @@ def read_usage_file(filesystems, this_user, group_members, cluster):
 
     for filesystem in filesystems:
         filename = filesystem + '/.mmrepquota/current'
+
+        if not os.path.exists(filename):
+            print("%s is not available at the moment" % filesystem)
+            continue
 
         with open(filename, 'r') as f:
             f.readline()
@@ -382,10 +390,10 @@ def live_quota_data(devices, filesystems, filesets, all_filesets, user, group, c
     output = ['', '', '']
     for device, filesystem in zip(devices, filesystems):
         query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-	if debug:
+	    if debug:
             result = subprocess.check_output([query], shell=True)
-	else:
-	    result = external_program_filter(query)
+	    else:
+            result = external_program_filter(query)
         # user based home quotas
         if cluster in user_quotas_clusters and device not in ['slayman', 'gibbs']:
             query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
@@ -429,8 +437,11 @@ def cached_quota_data(filesystems, filesets, group, user, cluster):
     output = ['', '', '']
 
     for filesystem in filesystems:
-
         filename = filesystem + '/.mmrepquota/current'
+
+        if not os.path.exists(filename):
+            continue
+
         with open(filename, 'r') as f:
             f.readline()
             for line in f:
