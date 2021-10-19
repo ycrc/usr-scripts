@@ -216,7 +216,8 @@ def format_for_summary(data, cluster):
     fileset = data[0]
 
     if 'home' in fileset or cluster == 'milgram':
-        backup = 'Yes'
+        if 'scratch60' not in fileset:
+            backup = 'Yes'
 
     if 'scratch60' in fileset:
         purge = '60 days'
