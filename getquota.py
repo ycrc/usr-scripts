@@ -311,7 +311,7 @@ def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_de
             f.readline()
             for line in f:
 
-                if 'USR' not in line or 'root' in line:
+                if 'USR' not in line or 'root' in line or 'apps' in line:
                     continue
 
                 fileset, user, user_data = parse_quota_line(line, True, filesystem)
@@ -411,37 +411,58 @@ def localcache_quota_data(user):
 
 def collect_quota_data(filesystems, filesets, all_filesets, user, group_id, cluster, is_live):
 
+    print("filesets", filesets)
+    global debug
+    if debug:
+        print("**Debug Output Enabled**")
+
     output = ['', '', '']
     group_name = grp.getgrgid(group_id).gr_name
     for filesystem in filesystems:
         if 'gpfs' in filesystem:
             if is_live:
-                output = live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group_id, cluster, output)
+                if debug:
+                    # if debug mode, force live query
+                    live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group_id, cluster, output)
+                else:
+                    #if not debug mode, fail over silently
+                    try:
+                        live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group_id, cluster, output)
+                    except:
+                        is_live = False
+                        cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
             else:
-                output = cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
+                cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
         elif 'vast' in filesystem:
             # vast doesn't (yet?) return live data so just return cached data
-            output = cached_quota_data_vast(filesystem, filesets, user, group_name, cluster, output)
+             cached_quota_data_vast(filesystem, filesets, user, group_name, cluster, output)
+        print(output)
 
     if is_live:
         file = open('/tmp/.%s' % user+'gqlc', 'w')
         pickle.dump(output, file)
         file.close()
 
-    print(output)
+    return output, is_live
 
-    return output
+def validate_gpfs_returned_values(result):
+    if not re.match("^mmlsq", result):
+        if debug:
+            print("Invalid results returned:", result)
+        return None
+    else:
+        return result
 
 # try to collect and return live quota data or return nothing. This function calls the expensive external
 # command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not
 # going to bother to address this, but if anyone has some free time on their hands then improving this function would
 # be an enjoyable way to spend some of it.
-
 def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluster, output):
 
     global debug
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
 
+    # get group level usage
     device = gpfs_device_names[filesystem]
     query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
     if debug:
@@ -452,33 +473,36 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
     # user based home quotas
     if device not in ['slayman', 'gibbs']:
         query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
-    if debug:
-        result += subprocess.check_output([query], shell=True)
-    else:
-        result += external_program_filter(query)
-    # make sure that result holds valid data
-    if not re.match("^mmlsq", result):
-        result = None
+        if debug:
+            result += subprocess.check_output([query], shell=True)
+        else:
+            result += external_program_filter(query)
+
+    # make sure that result thus far holds valid data
+    result = validate_gpfs_returned_values(result)
 
     for quota in result.split('\n'):
-        if 'HEADER' in quota or 'root' in quota or len(quota) < 10:
+        if 'HEADER' in quota or 'root' in quota or 'apps' in quota or len(quota) < 10:
             continue
         if ('USR' in quota and 'home' not in quota):
                 continue
         fileset, _, section = parse_quota_line(quota, False, filesystem)
         place_output(output, section, cluster, fileset)
+
+    # now add pi filesets previously identified in read_usage_files and validate_filesets
     for fileset in filesets:
-        # query all the pi filesets
-        if is_pi_fileset(fileset):
-            # check if this fileset is on this device
-            if all_filesets[fileset] == filesystem:
+        # check if this fileset is on this device
+        if all_filesets[fileset] == filesystem:
+            # query the local pi filesets
+            if is_pi_fileset(fileset):
                 fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
                 query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
-        if debug:
-            pi_quota = subprocess.check_output([query], shell=True)
-        else:
-            pi_quota = external_program_filter(query)
-            output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
+                if debug:
+                    pi_quota = subprocess.check_output([query], shell=True)
+                else:
+                    pi_quota = external_program_filter(query)
+                pi_quota = validate_gpfs_returned_values(pi_quota)
+                output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
 
     return output
 
@@ -534,7 +558,7 @@ def cached_quota_data_vast(filesystem, filesets, user, group, cluster, output):
 
     return output
 
-def print_cli_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
+def print_cli_output(details_data, summary_data, group_name, timestamp, is_live, cluster):
 
     header = "This script shows information about your quotas on {0}.\n".format(cluster)
     header += "If you plan to poll this sort of information extensively,\n"
@@ -549,7 +573,7 @@ def print_cli_output(details_data, summary_data, group_name, timestamp, is_me, c
     print(details_header)
     print(details_data)
 
-    if is_me:
+    if is_live:
         time = 'right now'
     else:
         time = timestamp
@@ -578,7 +602,7 @@ def print_cli_output(details_data, summary_data, group_name, timestamp, is_me, c
         print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
 
-def print_email_output(details_data, summary_data, group_name, timestamp, is_me, cluster):
+def print_email_output(details_data, summary_data, group_name, timestamp, cluster):
 
     header = "Our system has detected that you are approaching or have hit a \n"
     header += "storage quota on {0}.\n".format(cluster)
@@ -643,27 +667,23 @@ if (__name__ == '__main__'):
     group_members = get_group_members(group_id, cluster)
     usage_data, filesets, all_filesets = read_usage_files(filesystems[cluster], user, group_members, cluster)
     validate_filesets(filesets, cluster, group_name, all_filesets)
-
+    
     details_data = compile_usage_details(filesets, group_members, cluster, usage_data)
+    
+    is_live = False
+    if is_me:
+        is_live = True
 
     # quota summary
-    if debug:
-        print("**Debug Output Enabled**")  
-        summary_data = collect_quota_data(filesystems[cluster], filesets,
-                                          all_filesets, user, group_id, cluster, True)
-    else:
-        if is_me:
-            summary_data = localcache_quota_data(user)
-            if summary_data is '':
-                ## fix is_me toggle if data is not actually live
-                summary_data = collect_quota_data(filesystems[cluster], filesets,
-                                                   all_filesets, user, group_id, cluster, True)
-        else:
-             summary_data = collect_quota_data(filesystems[cluster], filesets, all_filesets, user, group_id, cluster, False)
+    summary_data = None
+    if is_me:
+        summary_data = localcache_quota_data(user)
+    if summary_data is None or debug:
+        summary_data, is_live = collect_quota_data(filesystems[cluster], filesets, all_filesets, user, group_id, cluster, is_live)
 
     if print_format == 'cli':
-        print_cli_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+        print_cli_output(details_data, summary_data, group_name, timestamp, is_live, cluster)
     elif print_format == 'email':
-        print_email_output(details_data, summary_data, group_name, timestamp, is_me, cluster)
+        print_email_output(details_data, summary_data, group_name, timestamp, cluster)
     else:
         sys.exit('unknown print format: ', print_format)
