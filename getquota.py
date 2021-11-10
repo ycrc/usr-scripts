@@ -411,7 +411,6 @@ def localcache_quota_data(user):
 
 def collect_quota_data(filesystems, filesets, all_filesets, user, group_id, cluster, is_live):
 
-    print("filesets", filesets)
     global debug
     if debug:
         print("**Debug Output Enabled**")
@@ -436,7 +435,6 @@ def collect_quota_data(filesystems, filesets, all_filesets, user, group_id, clus
         elif 'vast' in filesystem:
             # vast doesn't (yet?) return live data so just return cached data
              cached_quota_data_vast(filesystem, filesets, user, group_name, cluster, output)
-        print(output)
 
     if is_live:
         file = open('/tmp/.%s' % user+'gqlc', 'w')
