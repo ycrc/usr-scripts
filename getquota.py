@@ -484,6 +484,9 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
             continue
         if ('USR' in quota and 'home' not in quota):
                 continue
+        # keep old grace home quotas from appearing in getquota
+        if (device == 'loomis' and 'home' in quota):
+            continue
         fileset, _, section = parse_quota_line(quota, False, filesystem)
         place_output(output, section, cluster, fileset)
 
@@ -522,7 +525,12 @@ def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
 
             if fileset in filesets:
                 if 'home' in fileset:
+                    if cluster == "grace":
+                        continue
                     if 'USR' in line and name == user:
+                        # keep old grace home quotas from appearing in getquota
+                        if filesystem == 'loomis' and fileset == 'home.grace':
+                            continue
                         place_output(output, section, cluster, fileset)
                     continue
 
@@ -544,9 +552,13 @@ def cached_quota_data_vast(filesystem, filesets, user, group, cluster, output):
         all_quota_data = json.load(f)
 
         for quota in all_quota_data:
-
             if ':' in quota['name']:
                 fileset, name = quota['name'].split(':')
+                if 'home' in fileset and user in quota['name']:
+                    print(quota)
+                    data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
+                            quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
+                    place_output(output, data, cluster, fileset)
                 if name == group:
                     fileset = prefix_filesystem(filesystem, fileset)
                     data = [fileset, name, 'GRP', quota['used_effective_capacity']/1024/1024/1024,
@@ -674,8 +686,8 @@ if (__name__ == '__main__'):
 
     # quota summary
     summary_data = None
-    if is_me:
-        summary_data = localcache_quota_data(user)
+#    if is_me:
+#        summary_data = localcache_quota_data(user)
     if summary_data is None or debug:
         summary_data, is_live = collect_quota_data(filesystems[cluster], filesets, all_filesets, user, group_id, cluster, is_live)
 
