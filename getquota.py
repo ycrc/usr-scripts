@@ -554,11 +554,11 @@ def cached_quota_data_vast(filesystem, filesets, user, group, cluster, output):
         for quota in all_quota_data:
             if ':' in quota['name']:
                 fileset, name = quota['name'].split(':')
-                if 'home' in fileset and user in quota['name']:
-                    print(quota)
-                    data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
-                            quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
-                    place_output(output, data, cluster, fileset)
+                if user is not None:
+                    if 'home' in fileset and user in quota['name']:
+                        data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
+                                quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
+                        place_output(output, data, cluster, fileset)
                 if name == group:
                     fileset = prefix_filesystem(filesystem, fileset)
                     data = [fileset, name, 'GRP', quota['used_effective_capacity']/1024/1024/1024,
