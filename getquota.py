@@ -662,20 +662,24 @@ if (__name__ == '__main__'):
     if cluster is None:
         cluster = get_cluster()
 
-    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs', '/gpfs/slayman'],
+    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
-                   'grace': ['/gpfs/loomis', '/gpfs/gibbs', '/gpfs/slayman', '/vast/palmer'],
+                   'grace': ['/gpfs/loomis', '/gpfs/gibbs', '/vast/palmer'],
                    'milgram': ['/gpfs/milgram'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
                    }
+
+    this_filesystems = filesystems[cluster]
+    if cluster in ['farnam', 'grace'] and group_name == 'gerstein':
+        this_filesystems.append('/gpfs/slayman')
 
     # usage details
     timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
                                                                                 + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
-    usage_data, filesets, all_filesets = read_usage_files(filesystems[cluster], user, group_members, cluster)
+    usage_data, filesets, all_filesets = read_usage_files(this_filesystems, user, group_members, cluster)
     validate_filesets(filesets, cluster, group_name, all_filesets)
     
     details_data = compile_usage_details(filesets, group_members, cluster, usage_data)
@@ -689,7 +693,7 @@ if (__name__ == '__main__'):
 #    if is_me:
 #        summary_data = localcache_quota_data(user)
     if summary_data is None or debug:
-        summary_data, is_live = collect_quota_data(filesystems[cluster], filesets, all_filesets, user, group_id, cluster, is_live)
+        summary_data, is_live = collect_quota_data(this_filesystems, filesets, all_filesets, user, group_id, cluster, is_live)
 
     if print_format == 'cli':
         print_cli_output(details_data, summary_data, group_name, timestamp, is_live, cluster)
