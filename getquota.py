@@ -315,6 +315,8 @@ def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_de
                     continue
 
                 fileset, user, user_data = parse_quota_line(line, True, filesystem)
+                if fileset == 'gibbs:project':
+                    continue
 
                 if fileset not in usage_details.keys():
                     usage_details[fileset] = {}
@@ -483,11 +485,15 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
         if 'HEADER' in quota or 'root' in quota or 'apps' in quota or len(quota) < 10:
             continue
         if ('USR' in quota and 'home' not in quota):
-                continue
+            continue
         # keep old grace home quotas from appearing in getquota
         if (device == 'loomis' and 'home' in quota):
             continue
+        if (device == 'gibbs' and 'project' in quota):
+            continue
+
         fileset, _, section = parse_quota_line(quota, False, filesystem)
+
         place_output(output, section, cluster, fileset)
 
     # now add pi filesets previously identified in read_usage_files and validate_filesets
@@ -530,6 +536,8 @@ def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
                     if 'USR' in line and name == user:
                         # keep old grace home quotas from appearing in getquota
                         if filesystem == 'loomis' and fileset == 'home.grace':
+                            continue
+                        if filesystem == 'gibbs' and fileset == 'project':
                             continue
                         place_output(output, section, cluster, fileset)
                     continue
