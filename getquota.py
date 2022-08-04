@@ -216,10 +216,14 @@ def place_output(output, section, cluster, fileset):
         output[0] = section
 
     elif 'project' in fileset and 'pi' not in fileset:
+        if 'loomis' in fileset:
+            pass
         output[1] = section
 
     # scratch60
     elif 'scratch' in fileset:
+        if 'loomis' in fileset:
+            pass
         output[2] = section
 
 def format_for_details(data):
@@ -254,6 +258,10 @@ def check_limits(summary_data):
 
     at_limit = {'byte': False,
                 'file': False}
+    # skip loomis
+    if summary_data[0] in ['loomis:home.grace', 'loomis:scratch60', 'loomis:project']:
+        return at_limit
+    
 
     # if you can, avoid the possiblity of dividing by zero
     if summary_data[4] == 0:
@@ -315,7 +323,10 @@ def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_de
                     continue
 
                 fileset, user, user_data = parse_quota_line(line, True, filesystem)
-                if fileset == 'gibbs:project':
+                # REMOVE SOMEDAY
+                if fileset == 'loomis:project':
+                    continue
+                if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
                     continue
 
                 if fileset not in usage_details.keys():
@@ -489,7 +500,10 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
         # keep old grace home quotas from appearing in getquota
         if (device == 'loomis' and 'home' in quota):
             continue
-        if (device == 'gibbs' and 'project' in quota):
+        # REMOVE SOMEDAY
+        if (device == 'loomis' and 'project' in quota):
+            continue
+        if (device == 'gibbs' and 'project' in quota and cluster in ['ruddle', 'farnam']):
             continue
 
         fileset, _, section = parse_quota_line(quota, False, filesystem)
@@ -537,7 +551,10 @@ def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
                         # keep old grace home quotas from appearing in getquota
                         if filesystem == 'loomis' and fileset == 'home.grace':
                             continue
-                        if filesystem == 'gibbs' and fileset == 'project':
+                        # REMOVE SOMEDAY
+                        if filesystem == 'loomis' and fileset == 'project':
+                            continue
+                        if filesystem == 'gibbs' and cluster in ['ruddle', 'farnam'] and fileset == 'project':
                             continue
                         place_output(output, section, cluster, fileset)
                     continue
@@ -571,8 +588,7 @@ def cached_quota_data_vast(filesystem, filesets, user, group, cluster, output):
                     fileset = prefix_filesystem(filesystem, fileset)
                     data = [fileset, name, 'GRP', quota['used_effective_capacity']/1024/1024/1024,
                             quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
-
-                    output.append(data)
+                    place_output(output, data, cluster, fileset)
 
     return output
 
