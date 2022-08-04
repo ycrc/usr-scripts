@@ -324,7 +324,7 @@ def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_de
 
                 fileset, user, user_data = parse_quota_line(line, True, filesystem)
                 # REMOVE SOMEDAY
-                if fileset == 'loomis:project':
+                if fileset in ['loomis:project', 'loomis:pi_batista', 'loomis:pi_kaminski', 'loomis:pi_anticevic']:
                     continue
                 if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
                     continue
@@ -552,7 +552,7 @@ def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
                         if filesystem == 'loomis' and fileset == 'home.grace':
                             continue
                         # REMOVE SOMEDAY
-                        if filesystem == 'loomis' and fileset == 'project':
+                        if filesystem == 'loomis' and fileset in ['project', 'pi_batista']:
                             continue
                         if filesystem == 'gibbs' and cluster in ['ruddle', 'farnam'] and fileset == 'project':
                             continue
