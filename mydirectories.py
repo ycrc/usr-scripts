@@ -28,9 +28,9 @@ def construct_dirs(user, group):
 
     dirs = {}
 
-    dirs['grace'] = {'home': '/gpfs/loomis/home.grace/{0}/{1}'.format(group, user),
-                     'project': '/gpfs/loomis/project/{0}/{1}'.format(group, user),
-                     'scratch60': '/gpfs/loomis/scratch60/{0}/{1}'.format(group, user)
+    dirs['grace'] = {'home': '/vast/palmer/home.grace/{1}'.format(group, user),
+                     'project': '/gpfs/gibbs/project/{0}/{1}'.format(group, user),
+                     'scratch60': '/vast/palmer/scratch/{0}/{1}'.format(group, user)
                      }
 
     dirs['farnam'] = {'home': '/gpfs/ysm/home/{0}'.format(user),
