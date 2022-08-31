@@ -609,7 +609,7 @@ def print_cli_output(details_data, summary_data, group_name, timestamp, is_live,
     print(details_data)
 
     if is_live:
-        time = 'right now'
+        time = 'right now [*palmer stats are gathered once a day]'
     else:
         time = timestamp
 
