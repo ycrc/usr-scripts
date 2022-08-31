@@ -357,7 +357,8 @@ def compile_usage_details(filesets, group_members, cluster, data):
         else:
             for group_member in sorted(group_members):
                 if group_member not in data[fileset].keys():
-                    section.append(format_for_details([fileset, group_member, 0, 0, 0, 0]))
+                    continue
+                    #section.append(format_for_details([fileset, group_member, 0, 0, 0, 0]))
                 else:
                     section.append(format_for_details(data[fileset][group_member]))
 
