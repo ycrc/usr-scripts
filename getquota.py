@@ -158,10 +158,6 @@ def validate_filesets(filesets, cluster, group, all_filesets):
         if group in fileset and fileset not in filesets:
             filesets.append(fileset)
 
-        if fileset == 'loomis:pi_balou':
-            if fileset in filesets:
-                filesets.remove(fileset)
-
 def is_pi_fileset(fileset, section=None):
     # only applicable for GPFS
     if section is not None and 'FILESET' not in section:
@@ -215,14 +211,10 @@ def place_output(output, section, cluster, fileset):
         output[0] = section
 
     elif 'project' in fileset and 'pi' not in fileset:
-        if 'loomis' in fileset:
-            pass
         output[1] = section
 
     # scratch60
     elif 'scratch' in fileset:
-        if 'loomis' in fileset:
-            pass
         output[2] = section
 
 def format_for_details(data):
@@ -257,10 +249,6 @@ def check_limits(summary_data):
 
     at_limit = {'byte': False,
                 'file': False}
-    # skip loomis
-    if summary_data[0] in ['loomis:home.grace', 'loomis:scratch60', 'loomis:project']:
-        return at_limit
-    
 
     # if you can, avoid the possiblity of dividing by zero
     if summary_data[4] == 0:
@@ -322,9 +310,6 @@ def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_de
                     continue
 
                 fileset, user, user_data = parse_quota_line(line, True, filesystem)
-                # REMOVE SOMEDAY
-                if fileset in ['loomis:project', 'loomis:pi_batista', 'loomis:pi_kaminski', 'loomis:pi_anticevic']:
-                    continue
                 if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
                     continue
 
@@ -497,12 +482,6 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
             continue
         if ('USR' in quota and 'home' not in quota):
             continue
-        # keep old grace home quotas from appearing in getquota
-        if (device == 'loomis' and 'home' in quota):
-            continue
-        # REMOVE SOMEDAY
-        if (device == 'loomis' and 'project' in quota):
-            continue
         if (device == 'gibbs' and 'project' in quota and cluster in ['ruddle', 'farnam']):
             continue
 
@@ -548,12 +527,6 @@ def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
                     if cluster == "grace":
                         continue
                     if 'USR' in line and name == user:
-                        # keep old grace home quotas from appearing in getquota
-                        if filesystem == 'loomis' and fileset == 'home.grace':
-                            continue
-                        # REMOVE SOMEDAY
-                        if filesystem == 'loomis' and fileset in ['project', 'pi_batista']:
-                            continue
                         if filesystem == 'gibbs' and cluster in ['ruddle', 'farnam'] and fileset == 'project':
                             continue
                         place_output(output, section, cluster, fileset)
