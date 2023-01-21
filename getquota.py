@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 import fcntl
 import getpass
 import grp
@@ -18,7 +18,6 @@ from threading import Timer
 gpfs_device_names = {'/gpfs/ysm': 'ysm-gpfs',
                      '/gpfs/gibbs': 'gibbs',
                      '/gpfs/slayman': 'slayman',
-                     '/gpfs/loomis': 'loomis',
                      '/gpfs/milgram': 'milgram',
                      '/gpfs/ycga': 'ycga-gpfs'
                      }
@@ -117,7 +116,7 @@ def get_netid(uid):
         query += " cn=client,o=hpc.yale.edu -w hpc@Client"
         query += " 'uidNumber={1}'".format(cluster, uid)
         query += " uid | grep '^uid'"
-        result = subprocess.check_output([query], shell=True)
+        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
         name = result.replace('uid: ', '').rstrip('\n')
 
     except:
@@ -142,7 +141,7 @@ def get_group_members(group_id, cluster):
     else:
         query += " '(gidNumber={0})'".format(group_id)
     query += " uid | grep '^uid'"
-    result = subprocess.check_output([query], shell=True)
+    result = subprocess.check_output([query], shell=True, encoding='UTF-8')
 
     group_members = result.replace('uid: ', '').split('\n')
 
@@ -451,7 +450,7 @@ def collect_quota_data(filesystems, filesets, all_filesets, user, group_id, clus
              cached_quota_data_vast(filesystem, filesets, user, group_name, cluster, output)
 
     if is_live:
-        file = open('/tmp/.%s' % user+'gqlc', 'w')
+        file = open('/tmp/.%sgqlc' % user, 'wb')
         pickle.dump(output, file)
         file.close()
 
@@ -478,7 +477,7 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
     device = gpfs_device_names[filesystem]
     query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
     if debug:
-        result = subprocess.check_output([query], shell=True)
+        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
     else:
         result = external_program_filter(query)
 
@@ -486,7 +485,7 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
     if device not in ['slayman', 'gibbs']:
         query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
         if debug:
-            result += subprocess.check_output([query], shell=True)
+            result += subprocess.check_output([query], shell=True, encoding='UTF-8')
         else:
             result += external_program_filter(query)
 
@@ -520,7 +519,7 @@ def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluste
                 fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
                 query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
                 if debug:
-                    pi_quota = subprocess.check_output([query], shell=True)
+                    pi_quota = subprocess.check_output([query], shell=True, encoding='UTF-8')
                 else:
                     pi_quota = external_program_filter(query)
                 pi_quota = validate_gpfs_returned_values(pi_quota)
