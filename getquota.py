@@ -10,6 +10,7 @@ import re
 import shlex
 import stat
 import subprocess
+import argparse
 import sys
 import time
 from datetime import datetime
@@ -22,7 +23,7 @@ gpfs_device_names = {'/gpfs/ysm': 'ysm-gpfs',
                      '/gpfs/ycga': 'ycga-gpfs'
                      }
 
-common_filespaces = {'grace': ['home.grace', 'project', 'scratch60'],
+common_filespaces = {'grace': ['home.grace', 'project', 'scratch'],
                      'mccleary': ['home.mccleary', 'project', 'scratch'],
                      'farnam': ['home', 'project', 'scratch60'],
                      'ruddle': ['home', 'project', 'scratch60'],
@@ -32,8 +33,7 @@ common_filespaces = {'grace': ['home.grace', 'project', 'scratch60'],
 #### TO DO #####
 """"
 - refactor all general "fileset" logic to accomodate home, scratch not on GPFS
-- prefix home, project, scratch with filesystem
-
+- refactor "this_filesystem" to be a dictionary that contains all filesets on that filesystem
 """
 
 
@@ -41,59 +41,54 @@ def get_args():
 
     global debug
     global active_users_only
-    debug = False
-    active_users_only = False
-    cluster = None
-    is_me = True
-    print_format = 'cli'
+    is_me = False
 
-    i = 1
+    parser = argparse.ArgumentParser(
+                    prog = 'getquota',
+                    description = 'Reports storage usage and quotas of YCRC HPCs.  Use -u <user>, -g <group> or no argument for current user"',
+                    epilog = 'For issues and questions, contact hpc@yale.edu')
 
-    user = getpass.getuser()
-    while i < len(sys.argv):
-        if sys.argv[i] == '-d':
-            debug = True
-            i += 1
+    parser.add_argument('-d', '--debug', action='store_true', help='debug mode')
+    parser.add_argument('-a', '--active-users', action='store_true',
+                        help='only display usage for active users')
+    parser.add_argument('-u', '--user', help='usage and quotas for specific user')
+    parser.add_argument('-g', '--group', help='usage and quotas for specific group')
+    parser.add_argument('-c', '--cluster', default=get_cluster(),
+                        help='usage and quotas on alternate cluster')
 
-        elif sys.argv[i] == '-a':
-            active_users_only = True
-            i += 1
+    args = parser.parse_args()
 
-        elif sys.argv[i] == '-u':
-            user = sys.argv[i+1]
-            is_me = False
-            i += 2
+    debug = args.debug
+    active_users_only = args.active_users
 
-        elif sys.argv[i] == '-g':
-            user = None
-            try:
-                group_id = grp.getgrnam(sys.argv[i+1]).gr_gid
-            except:
-                sys.exit('Unknown group: '+sys.argv[i+1])
-            is_me = False
-            i += 2
-
-        elif sys.argv[i] == '-c':
-            cluster = sys.argv[i+1]
+    if args.group is None:
+        if args.user is None:
+            # get current user
             user = getpass.getuser()
             is_me = True
-            i += 2
-
-        elif sys.argv[i] == '-e':
-            is_me = True
-            print_format = 'email'
-            i += 1
-
         else:
-            sys.exit("Unknown argument. Use -u <user>, -g <group> or no argument for current user")
+            user = args.user
 
-    if user is not None:
+        # make sure user is valid, and if so get gid
         try:
             group_id = pwd.getpwnam(user).pw_gid
         except:
             sys.exit('Unknown user: '+user)
 
-    return user, group_id, cluster, is_me, print_format
+    else:
+        # make sure group is valid, and if so get gid
+        try:
+            group_id = grp.getgrnam(args.group).gr_gid
+        except:
+            sys.exit('Unknown group: '+args.group)
+
+        # if group is set, no user is set
+        user = None
+
+    ## REMOVE ME
+    print_format='cli'
+
+    return user, group_id, args.cluster, is_me, print_format
 
 
 def get_cluster():
@@ -102,27 +97,6 @@ def get_cluster():
         cluster = f.readline().split('=')[1].replace('"', '').rstrip()
 
     return cluster
-
-
-def get_netid(uid):
-
-    with open('/etc/yalehpc', 'r') as f:
-        f.readline()
-        mgt = f.readline().split('=')[1].replace('"', '').rstrip()
-
-    try:
-        query = 'LDAPTLS_REQCERT=never LDAPTLS_CACERTDIR="" ldapsearch'
-        query += "-xLLL -H ldaps://{0}  -b o=hpc.yale.edu -D".format(mgt)
-        query += " cn=client,o=hpc.yale.edu -w hpc@Client"
-        query += " 'uidNumber={1}'".format(cluster, uid)
-        query += " uid | grep '^uid'"
-        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
-        name = result.replace('uid: ', '').rstrip('\n')
-
-    except:
-        name = uid
-
-    return name
 
 
 def get_group_members(group_id, cluster):
@@ -141,6 +115,7 @@ def get_group_members(group_id, cluster):
     else:
         query += " '(gidNumber={0})'".format(group_id)
     query += " uid | grep '^uid'"
+
     result = subprocess.check_output([query], shell=True, encoding='UTF-8')
 
     group_members = result.replace('uid: ', '').split('\n')
@@ -151,12 +126,68 @@ def get_group_members(group_id, cluster):
 
     return group_members
 
-def validate_filesets(filesets, cluster, group, all_filesets):
+### ADAM'S CACHING ###
+
+# try to end something cleanly, ..for whatever reason
+def kill_cmd(cmd):
+    try:
+        cmd.stdout.close()
+        cmd.stderr.close()
+        cmd.kill()
+    except:
+        pass
+
+
+# try to read something, ..but don't assume that you can
+def nonblocking_read(output):
+    try:
+        fd = output.fileno()
+        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+        out = output.read()
+        if out is not None:
+            return out
+        else:
+            return b''
+    except:
+        return b''
+
+# run something, but discard any errors it may generate and give it a 4-second deadline to complete
+def external_program_filter(cmd):
+    timeout = 4
+    result = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    timer = Timer(timeout, kill_cmd, [result])
+    timer.start()
+    command_output = ''
+    while result.poll() is None:
+        time.sleep(0.5)
+        command_output += str(nonblocking_read(result.stdout).decode("utf-8"))
+    timer.cancel()
+    return (command_output)
+
+
+def localcache_quota_data(user):
+    output = ''
+    if os.path.isfile('/tmp/.'+user+'gqlc'):
+        lcmtime = time.time() - os.stat('/tmp/.'+user+'gqlc')[stat.ST_MTIME]
+
+        if lcmtime > 0 and lcmtime <= 300:
+            file = open('/tmp/.%s' % user+'gqlc', 'r')
+            output = pickle.load(file)
+
+    return output
+
+### END ADAM'S CACHING ###
+
+
+## PI FILESET CHECKS
+
+def add_missing_pi_filesets(user_filesets, group, filesets_by_filesystems):
 
     # fix for forcing pi filesets to show up for all primary group members
-    for fileset in all_filesets.keys():
-        if group in fileset and fileset not in filesets:
-            filesets.append(fileset)
+    for fileset in sum(filesets_by_filesystems.values(), []):
+        if group in fileset and fileset not in user_filesets:
+            user_filesets.append(fileset)
 
 def is_pi_fileset(fileset, section=None):
     # only applicable for GPFS
@@ -172,6 +203,8 @@ def is_pi_fileset(fileset, section=None):
     else:
         return True
 
+### HELPER FUNCTIONS
+
 def prefix_filesystem(filesystem, fileset):
 
     if 'gpfs' in filesystem:
@@ -181,7 +214,7 @@ def prefix_filesystem(filesystem, fileset):
 
     return fileset
 
-def parse_quota_line(line, details, filesystem):
+def parse_gpfs_mmrepquota_line(line, details, filesystem):
 
     split = line.split(':')
 
@@ -206,7 +239,7 @@ def parse_quota_line(line, details, filesystem):
     return fileset, name, data
 
 
-def place_output(output, section, cluster, fileset):
+def place_output(output, section, fileset):
     if 'home' in fileset:
         output[0] = section
 
@@ -216,6 +249,278 @@ def place_output(output, section, cluster, fileset):
     # scratch60
     elif 'scratch' in fileset:
         output[2] = section
+
+### COLLECT USAGE DATA AND QUOTAS
+
+##### GPFS
+
+def parse_gpfs_mmrepquota_line(line, details, filesystem):
+
+    split = line.split(':')
+
+    # Fileset
+    quota_type = split[7]
+    if quota_type == 'FILESET':
+        # name
+        fileset = split[9]
+        name = ''
+    else:
+        # name
+        name = split[9]
+        fileset = split[-2]
+
+    fileset = prefix_filesystem(filesystem, fileset)
+
+    # blockUsage+blockInDoubt, blockQuota
+    # filesUsage+filesInDoubt, filesQuota
+    data = [fileset, name, quota_type, int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[12])/1024/1024,
+            int(split[15])+int(split[18]), int(split[17])]
+
+    return fileset, name, data
+
+
+def read_mmrepquota_gpfs(filesystem, this_user, group_members, cluster, usage_details, user_filesets, all_filesets):
+
+    filename = filesystem + '/.mmrepquota/current'
+
+    if not os.path.exists(filename):
+        print("%s is not available at the moment" % filesystem)
+    else:    
+        with open(filename, 'r') as f:
+            f.readline()
+            for line in f:
+
+                if 'USR' not in line or 'root' in line or 'apps' in line:
+                    continue
+
+                fileset, user, user_data = parse_gpfs_mmrepquota_line(line, True, filesystem)
+                if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
+                    continue
+
+                if fileset not in usage_details.keys():
+                    usage_details[fileset] = {}
+
+                usage_details[fileset][user] = user_data
+
+                if user == this_user or (this_user is None and user in group_members):
+                    user_filesets.add(fileset)
+
+                if fileset not in all_filesets:
+                    all_filesets.append(fileset)
+
+
+def validate_gpfs_returned_values(result):
+    if not re.match("^mmlsq", result):
+        if debug:
+            print("Invalid results returned:", result)
+        return None
+    else:
+        return result
+
+
+def live_quota_data_gpfs(filesets, filesystem, all_filesets, user, group, cluster, output):
+
+    global debug
+    quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
+
+    # get group level usage
+    device = gpfs_device_names[filesystem]
+    query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
+    if debug:
+        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
+    else:
+        result = external_program_filter(query)
+
+    # user based home quotas
+    if device not in ['slayman', 'gibbs']:
+        query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+        if debug:
+            result += subprocess.check_output([query], shell=True, encoding='UTF-8')
+        else:
+            result += external_program_filter(query)
+
+    # make sure that result thus far holds valid data
+    result = validate_gpfs_returned_values(result)
+
+    for quota in result.split('\n'):
+        if 'HEADER' in quota or 'root' in quota or 'apps' in quota or len(quota) < 10:
+            continue
+        if ('USR' in quota and 'home' not in quota):
+            continue
+        if (device == 'gibbs' and 'project' in quota and cluster in ['ruddle', 'farnam']):
+            continue
+
+        fileset, _, section = parse_gpfs_mmrepquota_line(quota, False, filesystem)
+
+        place_output(output, section, fileset)
+
+    # now add pi filesets previously identified in read_mmrepquota_gpfs and add_missing_pi_filesets
+    for fileset in filesets:
+        # check if this fileset is on this device
+        if is_pi_fileset(fileset):
+            # check if this fileset is on this device
+            if fileset in all_filesets:
+                # query the local pi filesets
+                fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
+                query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
+                if debug:
+                    pi_quota = subprocess.check_output([query], shell=True, encoding='UTF-8')
+                else:
+                    pi_quota = external_program_filter(query)
+                pi_quota = validate_gpfs_returned_values(pi_quota)
+
+                output.append(parse_gpfs_mmrepquota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
+
+    return output
+
+def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
+
+    filename = filesystem + '/.mmrepquota/current'
+
+    if not os.path.exists(filename):
+         return output
+
+    with open(filename, 'r') as f:
+        f.readline()
+        for line in f:
+
+            if 'root' in line:
+                continue
+
+            fileset, name, section = parse_gpfs_mmrepquota_line(line, False, filesystem)
+
+            if fileset in filesets:
+                if 'home' in fileset:
+                    if cluster == "grace":
+                        continue
+                    if 'USR' in line and name == user:
+                        if filesystem == 'gibbs' and cluster in ['ruddle', 'farnam'] and fileset == 'project':
+                            continue
+                        place_output(output, section, fileset)
+                    continue
+
+                if name == group:
+                        place_output(output, section, fileset)
+
+                elif is_pi_fileset(fileset, section=section):
+                    output.append(section)
+
+    return output
+
+### VAST
+
+def cached_quota_data_vast(filesystem, user, group, output):
+
+    filename = filesystem + '/.quotas/current'
+    if not os.path.exists(filename):
+        return output
+
+    with open(filename, 'r') as f:
+        all_quota_data = json.load(f)
+
+        for quota in all_quota_data:
+            if ':' in quota['name']:
+                fileset, name = quota['name'].split(':')
+                if user is not None:
+                    if 'home' in fileset and user in quota['name']:
+                        data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
+                                quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
+                        place_output(output, data, fileset)
+                if name == group:
+                    fileset = prefix_filesystem(filesystem, fileset)
+                    data = [fileset, name, 'GRP', quota['used_effective_capacity']/1024/1024/1024,
+                            quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
+                    place_output(output, data, fileset)
+
+    return output
+
+
+## OVERALL USAGE AND QUOTA COLLECTION
+def collect_usage_details(filesystems, this_user, group_members, cluster):
+
+    # collects all usage details for gpfs systems
+    usage_details = {}
+    # collects list of all filesets and filesets where this_user has data
+    user_filesets = set()
+    filesets_by_filesystem = {filesystem: [] for filesystem in filesystems}
+
+    for filesystem in filesystems:
+        if 'gpfs' in filesystem:
+            read_mmrepquota_gpfs(filesystem, this_user, group_members, cluster,
+                                 usage_details, user_filesets, filesets_by_filesystem[filesystem])
+        elif 'vast' in filesystem:
+            pass
+
+    return usage_details, list(user_filesets), filesets_by_filesystem
+
+
+def collect_quota_data(filesets, filesets_by_filesystem, user, group_id, cluster, is_live):
+
+    global debug
+    if debug:
+        print("**Debug Output Enabled**")
+
+    output = ['', '', '']
+    group_name = grp.getgrgid(group_id).gr_name
+    for filesystem in filesets_by_filesystem.keys():
+        if 'gpfs' in filesystem:
+            if is_live:
+                if debug:
+                    # if debug mode, force live query
+                    live_quota_data_gpfs(filesets, filesystem, filesets_by_filesystem[filesystem],
+                                         user, group_id, cluster, output)
+                else:
+                    #if not debug mode, fail over silently
+                    try:
+                        live_quota_data_gpfs(filesets, filesystem, filesets_by_filesystem[filesystem],
+                                             user, group_id, cluster, output)
+                    except:
+                        is_live = False
+                        cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
+            else:
+                cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
+        elif 'vast' in filesystem:
+            # vast doesn't (yet?) return live data so just return cached data
+             cached_quota_data_vast(filesystem, user, group_name, output)
+
+    if is_live:
+        file = open('/tmp/.%sgqlc' % user, 'wb')
+        pickle.dump(output, file)
+        file.close()
+
+    return output
+
+## USER BREAKDOWN ##
+def compile_usage_details(filesets, group_members, data):
+    output = ['', '', '']
+
+    for fileset in sorted(filesets):
+        section = []
+
+        if is_pi_fileset(fileset):
+            for user in sorted(data[fileset].keys()):
+                section.append(format_for_details(data[fileset][user]))
+            output.append('\n'.join(section))
+
+        else:
+            for group_member in sorted(group_members):
+                if group_member not in data[fileset].keys():
+                    continue
+                else:
+                    section.append(format_for_details(data[fileset][group_member]))
+
+        place_output(output, '\n'.join(section), fileset)
+
+    # don't show home data
+    output.pop(0)
+    for i in range(len(output)-1):
+        if len(output[i]) == 0:
+            output.pop(i)
+
+    return '\n----\n'.join(output)
+
+
+### OUTPUT FORMATTING
 
 def format_for_details(data):
 
@@ -244,6 +549,7 @@ def format_for_summary(data, cluster):
                                                                        data[5], data[6],
                                                                        backup, purge)
 
+### LIMIT CHECKS
 
 def check_limits(summary_data):
 
@@ -278,293 +584,7 @@ def limits_warnings(summary_data):
                         "Reduce the number of files to avoid issues." % summary_data[0])
     return warnings
 
-def read_usage_files(filesystems, this_user, group_members, cluster):
-    # collects all usage details for gpfs systems
-    usage_details = {}
-    # collects list of all filesets and filesets where this_user has data
-    user_filesets = set()
-    all_filesets = {}
-
-    for filesystem in filesystems:
-        if 'gpfs' in filesystem:
-            read_usage_file_gpfs(filesystem, this_user, group_members, cluster,
-                                 usage_details, user_filesets, all_filesets)            
-        elif 'vast' in filesystem:
-            pass
-
-    return usage_details, list(user_filesets), all_filesets
-
-
-def read_usage_file_gpfs(filesystem, this_user, group_members, cluster, usage_details, user_filesets, all_filesets):
-
-    filename = filesystem + '/.mmrepquota/current'
-
-    if not os.path.exists(filename):
-        print("%s is not available at the moment" % filesystem)
-    else:    
-        with open(filename, 'r') as f:
-            f.readline()
-            for line in f:
-
-                if 'USR' not in line or 'root' in line or 'apps' in line:
-                    continue
-
-                fileset, user, user_data = parse_quota_line(line, True, filesystem)
-                if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
-                    continue
-
-                if fileset not in usage_details.keys():
-                    usage_details[fileset] = {}
-
-                usage_details[fileset][user] = user_data
-
-                if user == this_user or (this_user is None and user in group_members):
-                    user_filesets.add(fileset)
-
-                if fileset not in all_filesets.keys():
-                    all_filesets[fileset] = filesystem
-
-    return usage_details, user_filesets, all_filesets
-
-
-def compile_usage_details(filesets, group_members, cluster, data):
-    output = ['', '', '']
-
-    for fileset in sorted(filesets):
-        section = []
-
-        if is_pi_fileset(fileset):
-            for user in sorted(data[fileset].keys()):
-                section.append(format_for_details(data[fileset][user]))
-            output.append('\n'.join(section))
-
-        else:
-            for group_member in sorted(group_members):
-                if group_member not in data[fileset].keys():
-                    continue
-                    #section.append(format_for_details([fileset, group_member, 0, 0, 0, 0]))
-                else:
-                    section.append(format_for_details(data[fileset][group_member]))
-
-        place_output(output, '\n'.join(section), cluster, fileset)
-
-    # don't show home data
-    output.pop(0)
-    for i in range(len(output)-1):
-        if len(output[i]) == 0:
-            output.pop(i) 
-
-    return '\n----\n'.join(output)
-
-
-# try to end something cleanly, ..for whatever reason
-def kill_cmd(cmd):
-    try:
-        cmd.stdout.close()
-        cmd.stderr.close()
-        cmd.kill()
-    except:
-        pass
-
-
-# try to read something, ..but don't assume that you can
-def nonblocking_read(output):
-    try:
-        fd = output.fileno()
-        fl = fcntl.fcntl(fd, fcntl.F_GETFL)
-        fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-        out = output.read()
-        if out is not None:
-            return out
-        else:
-            return b''
-    except:
-        return b''
-
-
-# run something, but discard any errors it may generate and give it a 4-second deadline to complete
-def external_program_filter(cmd):
-    timeout = 4
-    result = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    timer = Timer(timeout, kill_cmd, [result])
-    timer.start()
-    command_output = ''
-    while result.poll() is None:
-        time.sleep(0.5)
-        command_output += str(nonblocking_read(result.stdout).decode("utf-8"))
-    timer.cancel()
-    return (command_output)
-
-
-def localcache_quota_data(user):
-    output = ''
-    if os.path.isfile('/tmp/.'+user+'gqlc'):
-        lcmtime = time.time() - os.stat('/tmp/.'+user+'gqlc')[stat.ST_MTIME]
-
-        if lcmtime > 0 and lcmtime <= 300:
-            file = open('/tmp/.%s' % user+'gqlc', 'r')
-            output = pickle.load(file)
-
-    return output
-
-def collect_quota_data(filesystems, filesets, all_filesets, user, group_id, cluster, is_live):
-
-    global debug
-    if debug:
-        print("**Debug Output Enabled**")
-
-    output = ['', '', '']
-    group_name = grp.getgrgid(group_id).gr_name
-    for filesystem in filesystems:
-        if 'gpfs' in filesystem:
-            if is_live:
-                if debug:
-                    # if debug mode, force live query
-                    live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group_id, cluster, output)
-                else:
-                    #if not debug mode, fail over silently
-                    try:
-                        live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group_id, cluster, output)
-                    except:
-                        is_live = False
-                        cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
-            else:
-                cached_quota_data_gpfs(filesystem, filesets, user, group_name, cluster, output)
-        elif 'vast' in filesystem:
-            # vast doesn't (yet?) return live data so just return cached data
-             cached_quota_data_vast(filesystem, filesets, user, group_name, cluster, output)
-
-    if is_live:
-        file = open('/tmp/.%sgqlc' % user, 'wb')
-        pickle.dump(output, file)
-        file.close()
-
-    return output, is_live
-
-def validate_gpfs_returned_values(result):
-    if not re.match("^mmlsq", result):
-        if debug:
-            print("Invalid results returned:", result)
-        return None
-    else:
-        return result
-
-# try to collect and return live quota data or return nothing. This function calls the expensive external
-# command mmgetquota several times, ..which is sub-optimal for a number of reasons. Pobody's nerfect, so I'm not
-# going to bother to address this, but if anyone has some free time on their hands then improving this function would
-# be an enjoyable way to spend some of it.
-def live_quota_data_gpfs(filesystem, filesets, all_filesets, user, group, cluster, output):
-
-    global debug
-    quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
-
-    # get group level usage
-    device = gpfs_device_names[filesystem]
-    query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group, device)
-    if debug:
-        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
-    else:
-        result = external_program_filter(query)
-
-    # user based home quotas
-    if device not in ['slayman', 'gibbs']:
-        query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
-        if debug:
-            result += subprocess.check_output([query], shell=True, encoding='UTF-8')
-        else:
-            result += external_program_filter(query)
-
-    # make sure that result thus far holds valid data
-    result = validate_gpfs_returned_values(result)
-
-    for quota in result.split('\n'):
-        if 'HEADER' in quota or 'root' in quota or 'apps' in quota or len(quota) < 10:
-            continue
-        if ('USR' in quota and 'home' not in quota):
-            continue
-        if (device == 'gibbs' and 'project' in quota and cluster in ['ruddle', 'farnam']):
-            continue
-
-        fileset, _, section = parse_quota_line(quota, False, filesystem)
-
-        place_output(output, section, cluster, fileset)
-
-    # now add pi filesets previously identified in read_usage_files and validate_filesets
-    for fileset in filesets:
-        # check if this fileset is on this device
-        if all_filesets[fileset] == filesystem:
-            # query the local pi filesets
-            if is_pi_fileset(fileset):
-                fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
-                query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
-                if debug:
-                    pi_quota = subprocess.check_output([query], shell=True, encoding='UTF-8')
-                else:
-                    pi_quota = external_program_filter(query)
-                pi_quota = validate_gpfs_returned_values(pi_quota)
-                output.append(parse_quota_line(pi_quota.split('\n')[1], False, filesystem)[-1])
-
-    return output
-
-def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
-
-    filename = filesystem + '/.mmrepquota/current'
-
-    if not os.path.exists(filename):
-         return output
-
-    with open(filename, 'r') as f:
-        f.readline()
-        for line in f:
-
-            if 'root' in line:
-                continue
-
-            fileset, name, section = parse_quota_line(line, False, filesystem)
-
-            if fileset in filesets:
-                if 'home' in fileset:
-                    if cluster == "grace":
-                        continue
-                    if 'USR' in line and name == user:
-                        if filesystem == 'gibbs' and cluster in ['ruddle', 'farnam'] and fileset == 'project':
-                            continue
-                        place_output(output, section, cluster, fileset)
-                    continue
-
-                if name == group:
-                        place_output(output, section, cluster, fileset)
-
-                elif is_pi_fileset(fileset, section=section):
-                    output.append(section)
-
-    return output
-
-def cached_quota_data_vast(filesystem, filesets, user, group, cluster, output):
-
-    filename = filesystem + '/.quotas/current'
-    if not os.path.exists(filename):
-        return output
-
-    with open(filename, 'r') as f:
-        all_quota_data = json.load(f)
-
-        for quota in all_quota_data:
-            if ':' in quota['name']:
-                fileset, name = quota['name'].split(':')
-                if user is not None:
-                    if 'home' in fileset and user in quota['name']:
-                        data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
-                                quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
-                        place_output(output, data, cluster, fileset)
-                if name == group:
-                    fileset = prefix_filesystem(filesystem, fileset)
-                    data = [fileset, name, 'GRP', quota['used_effective_capacity']/1024/1024/1024,
-                            quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
-                    place_output(output, data, cluster, fileset)
-
-    return output
-
+#### PRINT FORMATS
 def print_cli_output(details_data, summary_data, group_name, timestamp, is_live, cluster):
 
     header = "This script shows information about your quotas on {0}.\n".format(cluster)
@@ -649,15 +669,13 @@ def print_email_output(details_data, summary_data, group_name, timestamp, cluste
     print(details_header)
     print(details_data)
 
+### MAIN ###
 
 if (__name__ == '__main__'):
     global debug
 
     user, group_id, cluster, is_me, print_format = get_args()
     group_name = grp.getgrgid(group_id).gr_name
-
-    if cluster is None:
-        cluster = get_cluster()
 
     filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
@@ -667,31 +685,35 @@ if (__name__ == '__main__'):
                    'gibbs': ['/gpfs/gibbs']
                    }
 
-    this_filesystems = filesystems[cluster]
     if cluster in ['farnam', 'grace'] and group_name == 'gerstein':
-        this_filesystems.append('/gpfs/slayman')
+        filesystems[cluster].append('/gpfs/slayman')
 
     # usage details
     timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
                                                                                 + '/.mmrepquota/current')))
 
     group_members = get_group_members(group_id, cluster)
-    usage_data, filesets, all_filesets = read_usage_files(this_filesystems, user, group_members, cluster)
-    validate_filesets(filesets, cluster, group_name, all_filesets)
+
+    usage_data, user_filesets, filesets_by_filesystem = collect_usage_details(filesystems[cluster], user,
+                                                               group_members, cluster)
+
+    add_missing_pi_filesets(user_filesets, group_name, filesets_by_filesystem)
     
-    details_data = compile_usage_details(filesets, group_members, cluster, usage_data)
+    details_data = compile_usage_details(user_filesets, group_members, usage_data)
     
     is_live = False
     if is_me:
         is_live = True
 
-    # quota summary
+    # usage and quota summary
     summary_data = None
 #    if is_me:
 #        summary_data = localcache_quota_data(user)
     if summary_data is None or debug:
-        summary_data, is_live = collect_quota_data(this_filesystems, filesets, all_filesets, user, group_id, cluster, is_live)
+        summary_data = collect_quota_data(user_filesets, filesets_by_filesystem,
+                                          user, group_id, cluster, is_live)
 
+    # print
     if print_format == 'cli':
         print_cli_output(details_data, summary_data, group_name, timestamp, is_live, cluster)
     elif print_format == 'email':
