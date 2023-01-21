@@ -689,7 +689,7 @@ if (__name__ == '__main__'):
 
     filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
-                   'grace': ['/gpfs/loomis', '/gpfs/gibbs', '/vast/palmer'],
+                   'grace': ['/gpfs/gibbs', '/vast/palmer'],
                    'milgram': ['/gpfs/milgram'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
