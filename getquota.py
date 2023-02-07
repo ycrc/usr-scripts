@@ -525,7 +525,7 @@ def compile_usage_details(filesets, group_members, data):
 def format_for_details(data):
 
     # fileset, user, bytes, file count
-    return '{0:23}{1:6}{2:10}{3:14,}'.format(data[0], data[1],
+    return '{0:23.22}{1:14.13}{2:10.0f}{3:14,}'.format(data[0], data[1],
                                              data[3], data[5])
 
 
@@ -544,7 +544,7 @@ def format_for_summary(data, cluster):
         purge = '60 days'
 
     # fileset, userid, quota_type, bytes, byte quota, file count, file limit
-    return '{0:23}{1:8}{2:12}{3:12}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
+    return '{0:23.22}{1:8}{2:12.0f}{3:12.0f}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
                                                                        data[3], data[4],
                                                                        data[5], data[6],
                                                                        backup, purge)
@@ -680,6 +680,7 @@ if (__name__ == '__main__'):
     filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
                    'grace': ['/gpfs/gibbs', '/vast/palmer'],
+                   'mccleary': ['/gpfs/gibbs', '/vast/palmer'],
                    'milgram': ['/gpfs/milgram'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
