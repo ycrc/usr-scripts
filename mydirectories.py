@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 import os
 import sys
@@ -33,6 +33,11 @@ def construct_dirs(user, group):
                      'scratch60': '/vast/palmer/scratch/{0}/{1}'.format(group, user)
                      }
 
+    dirs['mccleary'] = {'home': '/vast/palmer/home.mccleary/{1}'.format(group, user),
+                     'project': '/gpfs/gibbs/project/{0}/{1}'.format(group, user),
+                     'scratch60': '/vast/palmer/scratch/{0}/{1}'.format(group, user)
+                     }
+
     dirs['farnam'] = {'home': '/gpfs/ysm/home/{0}'.format(user),
                       'project': '/gpfs/ysm/project/{0}/{1}'.format(group, user),
                       'scratch60': '/gpfs/ysm/scratch60/{0}/{1}'.format(group, user)
@@ -48,9 +53,9 @@ def construct_dirs(user, group):
 
 def print_output(dirs):
 
-    print "Full directory paths for {}:\n".format(user)
+    print("Full directory paths for {}:\n".format(user))
 
-    for cluster in ['grace', 'farnam', 'ruddle']:
+    for cluster in ['grace', 'mccleary', 'farnam', 'ruddle']:
     
         if (os.path.exists(dirs[cluster]['home']) or os.path.exists(dirs[cluster]['project']) or
                 os.path.exists(dirs[cluster]['scratch60'])):
