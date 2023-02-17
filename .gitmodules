@@ -4,3 +4,6 @@
 [submodule "seff-array"]
 	path = seff-array
 	url = git@github.com:ycrc/seff-array.git
+[submodule "ycrc_vglrun"]
+	path = ycrc_vglrun
+	url = https://github.com/ycrc/ycrc_vglrun
