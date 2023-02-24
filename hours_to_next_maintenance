@@ -4,7 +4,7 @@ maint_start="$(sinfo -hT | grep maintenance | awk '{print$3}')"
 
 if [ -z $maint_start ] 
 then
-    echo "No upcoming reservations found" && exit 1
+    echo "No upcoming maintenance found" && exit 1
 else
     echo $((($(date -d "${maint_start}" '+%s') - $(date -d now +%s)) / 3600))
 fi
