@@ -414,6 +414,8 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
     filenames = [filesystem + '/.quotas/current']
     if cluster == 'mccleary':
         filenames.append(filesystem + '/.quotas/mccleary_current')
+    if cluster == 'grace':
+        filenames.append(filesystem + '/.quotas/grace_current')
 
     for filename in filenames:
         if not os.path.exists(filename):
@@ -423,21 +425,21 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
             all_quota_data = json.load(f)
 
             for quota in all_quota_data:
-                if 'mccleary' in filename:
+                if 'mccleary' in filename or 'grace' in filename:
                     if user is not None and user in quota['entity_identifier']:
                         ### FIX: REPLACE used_effective_capacity instead of used_capacity
-                        data = ['palmer:home.mccleary', quota['entity_identifier'], 'USR', quota['used_capacity']/1024/1024/1024,
+                        data = ['palmer:home.'+cluster, quota['entity_identifier'], 'USR', quota['used_capacity']/1024/1024/1024,
                                             quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
                         place_output(output, data, fileset)
                 else:
                     if ':' in quota['name']:
                         fileset, name = quota['name'].split(':')
 
-                        if user is not None and cluster == 'grace':
-                            if 'home' in fileset and user in quota['name']:
-                                data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
-                                        quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
-                                place_output(output, data, fileset)
+                       # if user is not None and cluster == 'grace':
+                       #     if 'home' in fileset and user in quota['name']:
+                       #         data = ['palmer:'+fileset, name, 'USR', quota['used_effective_capacity']/1024/1024/1024,
+                       #                 quota['hard_limit']/1024/1024/1024, quota['used_inodes'], quota['hard_limit_inodes']]
+                       #         place_output(output, data, fileset)
 
                         if name == group:
                             fileset = prefix_filesystem(filesystem, fileset)
