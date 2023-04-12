@@ -432,8 +432,7 @@ def read_user_details_vast(group, usage_details, user_filesets, all_filesets):
     fileset = 'palmer:scratch'
     usage_details[fileset] = {}
 
-    filename = '/tmp/scratch_details'
-    # filename = '/vast/palmer/.quotas/scratch_details_current'
+    filename = '/vast/palmer/.quotas/scratch.details'
     if not os.path.exists(filename):
             return
 
