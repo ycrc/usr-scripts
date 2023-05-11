@@ -700,13 +700,13 @@ if (__name__ == '__main__'):
     filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
                    'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
                    'grace': ['/gpfs/gibbs', '/vast/palmer'],
-                   'mccleary': ['/gpfs/gibbs', '/vast/palmer'],
+                   'mccleary': ['/gpfs/gibbs', '/vast/palmer', '/gpfs/ycga'],
                    'milgram': ['/gpfs/milgram'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
                    }
 
-    if cluster in ['farnam', 'grace'] and group_name == 'gerstein':
+    if cluster in ['farnam', 'grace', 'mccleary'] and group_name == 'gerstein':
         filesystems[cluster].append('/gpfs/slayman')
 
     # usage details
