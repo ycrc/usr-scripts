@@ -20,7 +20,7 @@ gpfs_device_names = {'/gpfs/ysm': 'ysm-gpfs',
                      '/gpfs/gibbs': 'gibbs',
                      '/gpfs/slayman': 'slayman',
                      '/gpfs/milgram': 'milgram',
-                     '/gpfs/ycga': 'ycga-gpfs'
+                     '/gpfs/ycga': 'ycga'
                      }
 
 common_filespaces = {'grace': ['home.grace', 'project', 'scratch'],
@@ -186,8 +186,11 @@ def add_missing_pi_filesets(user_filesets, group, filesets_by_filesystems):
 
     # fix for forcing pi filesets to show up for all primary group members
     for fileset in sum(filesets_by_filesystems.values(), []):
-        if group in fileset and fileset not in user_filesets:
+        #if group in fileset and fileset not in user_filesets:
+        if re.search(rf"[^:]+?:pi_{group}$", fileset) and fileset not in user_filesets:
+            #print(fileset, group)
             user_filesets.append(fileset)
+
 
 def is_pi_fileset(fileset, section=None):
     # only applicable for GPFS
@@ -196,7 +199,7 @@ def is_pi_fileset(fileset, section=None):
 
     if 'pi' in fileset:
         return True
-    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset:
+    elif 'scratch' in fileset or 'home' in fileset or 'project' in fileset or 'work' in fileset:
         return False
     elif 'apps' in fileset:
         return False
@@ -225,6 +228,9 @@ def place_output(output, section, fileset):
     # scratch60
     elif 'scratch' in fileset:
         output[2] = section
+
+    elif fileset == 'ycga:work':
+        output.append(section)
 
 ### COLLECT USAGE DATA AND QUOTAS
 
@@ -337,7 +343,8 @@ def live_quota_data_gpfs(filesets, filesystem, all_filesets, user, group, cluste
             # check if this fileset is on this device
             if fileset in all_filesets:
                 # query the local pi filesets
-                fileset_name = re.search('[^:]+?:(.*)', fileset).group(1)
+                fileset_name = re.search('[^:]+?:(.*):', fileset).group(1)
+
                 query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
                 if debug:
                     pi_quota = subprocess.check_output([query], shell=True, encoding='UTF-8')
