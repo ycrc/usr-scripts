@@ -552,7 +552,7 @@ def compile_usage_details(filesets, group_members, data):
 def format_for_details(data):
 
     # fileset, user, bytes, file count
-    return '{0:23.22}{1:14.13}{2:10.0f}{3:14,}'.format(data[0], data[1],
+    return '{0:30.29}{1:14.13}{2:10.0f}{3:14,}'.format(data[0], data[1],
                                              data[3], data[5])
 
 
@@ -571,7 +571,7 @@ def format_for_summary(data, cluster):
         purge = '60 days'
 
     # fileset, userid, quota_type, bytes, byte quota, file count, file limit
-    return '{0:23.22}{1:8}{2:12.0f}{3:12.0f}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
+    return '{0:30.29}{1:8}{2:12.0f}{3:12.0f}{4:14,}{5:14,} {6:10}{7:10}'.format(data[0], data[2],
                                                                        data[3], data[4],
                                                                        data[5], data[6],
                                                                        backup, purge)
@@ -621,8 +621,8 @@ def print_cli_output(details_data, summary_data, group_name, timestamp, is_live,
     print(header)
 
     details_header = '## Usage Details for {0} (as of {1})\n'.format(group_name, timestamp)
-    details_header += '{0:23}{1:14}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
-    details_header += '{0:23}{1:14}{2:10}{3:14}'.format('-'*22, '-'*13, '-'*10, ' '+'-'*13)
+    details_header += '{0:30}{1:14}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
+    details_header += '{0:30}{1:14}{2:10}{3:14}'.format('-'*29, '-'*13, '-'*10, ' '+'-'*13)
 
     print(details_header)
     print(details_data)
@@ -633,10 +633,10 @@ def print_cli_output(details_data, summary_data, group_name, timestamp, is_live,
         time = timestamp
 
     summary_header = '\n## Quota Summary for {0} (as of {1})\n'.format(group_name, time)
-    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
+    summary_header += '{0:30}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
                                                                                  ' Quota (GiB)', ' File Count',
                                                                                  ' File Limit', ' Backup', ' Purged')
-    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
+    summary_header += '{0:30}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*29, '-'*7, '-'*12,
                                                                                ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
                                                                                ' '+'-'*9, ' '+'-'*9)
 
