@@ -278,6 +278,8 @@ def read_mmrepquota_gpfs(filesystem, this_user, group_members, cluster, usage_de
                 fileset, user, user_data = parse_gpfs_mmrepquota_line(line, True, filesystem)
                 if fileset == 'gibbs:project' and cluster in ['ruddle', 'farnam']:
                     continue
+                if fileset == 'milgram:globus':
+                    continue
 
                 if fileset not in usage_details.keys():
                     usage_details[fileset] = {}
