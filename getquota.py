@@ -402,10 +402,12 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
     if cluster == 'grace':
         filenames.append(filesystem + '/.quotas/grace_current')
 
+    uid = str(pwd.getpwnam(user).pw_uid)
+
     for filename in filenames:
         if not os.path.exists(filename):
             return output
-
+        
         with open(filename, 'r') as f:
             all_quota_data = json.load(f)
 
@@ -413,7 +415,7 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
                 if 'mccleary' in filename or 'grace' in filename:
                     ### NOTE TO SELF: this used to be user in quota['entity_identifier'] but that was causing problems. 
                     ### not sure why i used in, but noting in case the fix introduces new/old issues.
-                    if user is not None and user == quota['entity_identifier']:
+                    if user is not None and (user == quota['entity_identifier'] or uid == quota['entity_identifier']):
                         fileset = 'palmer:home.'+cluster
                         ### FIX: REPLACE used_effective_capacity instead of used_capacity
                         data = [fileset, quota['entity_identifier'], 'USR', quota['used_capacity']/1024/1024/1024,
