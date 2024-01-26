@@ -402,7 +402,10 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
     if cluster == 'grace':
         filenames.append(filesystem + '/.quotas/grace_current')
 
-    uid = str(pwd.getpwnam(user).pw_uid)
+    if user is not None:
+        uid = str(pwd.getpwnam(user).pw_uid)
+    else:
+        uid = ""
 
     for filename in filenames:
         if not os.path.exists(filename):
