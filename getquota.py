@@ -20,14 +20,16 @@ gpfs_device_names = {'/gpfs/ysm': 'ysm-gpfs',
                      '/gpfs/gibbs': 'gibbs',
                      '/gpfs/slayman': 'slayman',
                      '/gpfs/milgram': 'milgram',
-                     '/gpfs/ycga': 'ycga'
+                     '/gpfs/ycga': 'ycga',
+                     '/gpfs/radev': 'radev',
                      }
 
 common_filespaces = {'grace': ['home.grace', 'project', 'scratch'],
                      'mccleary': ['home.mccleary', 'project', 'scratch'],
                      'farnam': ['home', 'project', 'scratch60'],
                      'ruddle': ['home', 'project', 'scratch60'],
-                     'milgram': ['home', 'project', 'scratch60']
+                     'milgram': ['home', 'project', 'scratch60'],
+                     'misha': ['home','project','scratch'],
                      }
 
 #### TO DO #####
@@ -718,6 +720,7 @@ if (__name__ == '__main__'):
                    'grace': ['/gpfs/gibbs', '/vast/palmer'],
                    'mccleary': ['/gpfs/gibbs', '/vast/palmer', '/gpfs/ycga'],
                    'milgram': ['/gpfs/milgram'],
+                   'misha': ['/gpfs/radev'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
                    }
