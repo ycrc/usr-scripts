@@ -717,18 +717,21 @@ if (__name__ == '__main__'):
     user, group_id, cluster, is_me, print_format = get_args()
     group_name = grp.getgrgid(group_id).gr_name
 
-    filesystems = {'farnam': ['/gpfs/ysm', '/gpfs/gibbs'],
-                   'ruddle': ['/gpfs/ycga', '/gpfs/gibbs'],
+    filesystems = {
                    'grace': ['/gpfs/gibbs', '/vast/palmer'],
-                   'mccleary': ['/gpfs/gibbs', '/vast/palmer', '/gpfs/ycga'],
+                   'mccleary': ['/gpfs/gibbs', '/vast/palmer'],
                    'milgram': ['/gpfs/milgram'],
                    'misha': ['/gpfs/radev'],
                    'slayman': ['/gpfs/slayman'],
                    'gibbs': ['/gpfs/gibbs']
                    }
 
-    if cluster in ['farnam', 'grace', 'mccleary'] and group_name == 'gerstein':
+    if cluster in ['mccleary'] and group_name == 'gerstein':
         filesystems[cluster].append('/gpfs/slayman')
+    # check if user in ycga group
+    if cluster in ['mccleary'] and 10266 in os.getgroups():
+        filesystems[cluster].append('/gpfs/ycga')
+
 
     # usage details
     timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
