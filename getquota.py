@@ -515,13 +515,10 @@ def read_user_details_vast_pi(this_user, group, group_members, usage_details, us
             if fileset not in all_filesets:
                 all_filesets.append(fileset)
 
-    print(user_filesets)
     allocations = []
     for fileset in user_filesets:
         if 'palmer:pi_' in fileset:
             allocations.append(fileset.replace('palmer:pi_', ''))
-            
-    print(allocations)
 
 
 ## OVERALL USAGE AND QUOTA COLLECTION
