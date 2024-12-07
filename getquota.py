@@ -16,24 +16,23 @@ import time
 from datetime import datetime
 from threading import Timer
 
-gpfs_device_names = {'/gpfs/gibbs': 'gibbs',
-                     '/gpfs/milgram': 'milgram',
-                     '/gpfs/ycga': 'ycga',
-                     '/gpfs/radev': 'radev',
+gpfs_device_names = {'gibbs': 'gibbs',
+                     'milgram': 'milgram',
+                     'ycga': 'ycga',
+                     'radev': 'radev',
+                     'marilyn': 'radev'
                      }
+
+vast_paths = {'palmer': '/vast/palmer/',
+              'roberts': '/nfs/roberts/',
+              'weston': '/nfs/weston/'
+             }
 
 common_filespaces = {'grace': ['home.grace', 'project', 'scratch'],
                      'mccleary': ['home.mccleary', 'project', 'scratch'],
                      'milgram': ['home', 'project', 'scratch60'],
                      'misha': ['home','project','scratch'],
                      }
-
-#### TO DO #####
-""""
-- refactor all general "fileset" logic to accomodate home, scratch not on GPFS
-- refactor "this_filesystem" to be a dictionary that contains all filesets on that filesystem
-"""
-
 
 def get_args():
 
@@ -123,9 +122,6 @@ def get_group_members(group, cluster):
     if group['members'][-1] == '':
         group['members'].pop(-1)
 
-    ## remove
-    # return group_membes
-
 ### ADAM'S CACHING ###
 
 # try to end something cleanly, ..for whatever reason
@@ -182,8 +178,8 @@ def localcache_quota_data(user):
 
 ## PI FILESET CHECKS
 
-def add_missing_pi_filesets(user_filesets, group, filesets_by_filesystems):
-
+def add_missing_pi_filesets(user_filesets, group):
+#### BROKEN BUT MAYBE WE DONT
     # fix for forcing pi filesets to show up for all primary group members
     for fileset in sum(filesets_by_filesystems.values(), []):
         #if group in fileset and fileset not in user_filesets:
@@ -207,19 +203,6 @@ def is_pi_fileset(fileset, section=None):
 
 ### HELPER FUNCTIONS
 
-def prefix_filesystem(filesystem, fileset):
-
-    if 'gpfs' in filesystem:
-        fileset = filesystem.replace('/gpfs/', '')+':'+fileset
-    elif 'vast' in filesystem:
-        if fileset == 'scratch':
-            fileset = 'palmer:'+fileset
-    else:
-        sys.exit('Unknown filesystem: ', filesystem)
-
-    return fileset
-
-
 def place_output(output, quota):
     if 'home' in quota['fileset']:
         output[0] = quota
@@ -231,7 +214,7 @@ def place_output(output, quota):
     elif 'scratch' in quota['fileset']:
         output[2] = quota
 
-    elif fileset == 'ycga:work':
+    elif 'ycga:work' in quota['fileset']:
         output.append(quota)
 
 ### COLLECT USAGE DATA AND QUOTAS
@@ -253,27 +236,25 @@ def parse_gpfs_mmrepquota_line(line, filesystem):
         name = split[9]
         fileset = split[-2]
 
-    fileset = prefix_filesystem(filesystem, fileset)
+    fileset = filesystem+':'+fileset
 
     # blockUsage+blockInDoubt, blockQuota
     # filesUsage+filesInDoubt, filesQuota
 
     quota = {'fileset': fileset,
             'name': name, # netid is quota_type = USR, groupname if quota_type = GRP, '' if FILESET
-            'used_gb': int(split[10])/1024/1024+int(split[13])/1024/1024, # blockUsage+blockInDoubt
-            'quota_gb': int(split[12])/1024/1024, # blockQuota
+            'used_gib': int(split[10])/1024/1024+int(split[13])/1024/1024, # blockUsage+blockInDoubt
+            'quota_gib': int(split[12])/1024/1024, # blockQuota
             'used_files': int(split[15])+int(split[18]), # filesUsage+filesInDoubt
             'quota_files': int(split[17]) # filesQuota
            }
-#    data = [fileset, name, quota_type, int(split[10])/1024/1024+int(split[13])/1024/1024, int(split[12])/1024/1024,
-#            int(split[15])+int(split[18]), int(split[17])]
 
-    return fileset, name, quota
+    return quota
 
 
 def read_mmrepquota_gpfs(filesystem, this_user, cluster, group, usage_details, user_filesets):
 
-    filename = filesystem + '/.mmrepquota/current'
+    filename = '/gpfs/'+filesystem + '/.mmrepquota/current'
 
     if not os.path.exists(filename):
         print("%s is not available at the moment" % filesystem)
@@ -285,18 +266,18 @@ def read_mmrepquota_gpfs(filesystem, this_user, cluster, group, usage_details, u
                 if 'USR' not in line or 'root' in line or 'apps' in line:
                     continue
 
-                fileset, user, user_data = parse_gpfs_mmrepquota_line(line, filesystem)
-
-                if fileset == 'milgram:globus':
+                user_data = parse_gpfs_mmrepquota_line(line, filesystem)
+                
+                if user_data['fileset'] == 'milgram:globus':
                     continue
 
-                if fileset not in usage_details.keys():
-                    usage_details[fileset] = {}
+                if user_data['fileset'] not in usage_details.keys():
+                    usage_details[user_data['fileset']] = {}
 
-                usage_details[fileset][user] = user_data
+                usage_details[user_data['fileset']][user_data['name']] = user_data
 
-                if user == this_user or (this_user is None and user in group['members']):
-                    user_filesets.add(fileset)
+                if user_data['name'] == this_user or (this_user is None and user_data['name'] in group['members']):
+                    user_filesets.add(user_data['fileset'])
 
 
 def validate_gpfs_returned_values(result):
@@ -308,102 +289,87 @@ def validate_gpfs_returned_values(result):
         return result
 
 
-def live_quota_data_gpfs(filesets, filesystem, user, group, cluster, output):
+def quota_data_gpfs(filesets, filesystem, user, group, cluster, output, is_live=True):
 
     global debug
     quota_script = '/usr/lpp/mmfs/bin/mmlsquota'
 
-    # get group level usage
-    device = gpfs_device_names[filesystem]
-    query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group['name'], device)
-    if debug:
-        result = subprocess.check_output([query], shell=True, encoding='UTF-8')
-    else:
-        result = external_program_filter(query)
-
-    # user based home quotas
-    if device not in ['gibbs', 'ycga']:
-        query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+    if is_live:
+        # get group level usage
+        device = gpfs_device_names[filesystem]
+        query = '{0} -g {1} -Y --block-size auto {2}'.format(quota_script, group['name'], device)
         if debug:
-            result += subprocess.check_output([query], shell=True, encoding='UTF-8')
+            result = subprocess.check_output([query], shell=True, encoding='UTF-8')
         else:
-            result += external_program_filter(query)
+            result = external_program_filter(query)
 
-    # make sure that result thus far holds valid data
-    result = validate_gpfs_returned_values(result)
+        # user based home quotas
+        if device not in ['gibbs', 'ycga']:
+            query = '{0} -u {1} -Y --block-size auto {2} '.format(quota_script, user, device)
+            if debug:
+                result += subprocess.check_output([query], shell=True, encoding='UTF-8')
+            else:
+                result += external_program_filter(query)
 
-    for this_quota in result.split('\n'):
-        if 'HEADER' in this_quota or 'root' in this_quota or 'apps' in this_quota or len(this_quota) < 10:
-            continue
-        if ('USR' in this_quota and 'home' not in this_quota):
-            continue
-
-        fileset, _, quota = parse_gpfs_mmrepquota_line(this_quota, filesystem)
-
-        place_output(output, quota)
-
-    # now add pi filesets previously identified in read_mmrepquota_gpfs and add_missing_pi_filesets
-    for fileset in filesets:
-        # check if this fileset is on this device
-        if is_pi_fileset(fileset):
-            # check if this fileset is on this device
-            # fileset is for format filesystem:fileset_name
-            if filesystem in fileset:
-                # query the local pi filesets
-                fileset_name = re.search('[^:]+?:(.*):', fileset).group(1)
+        # now add pi filesets previously identified in read_mmrepquota_gpfs
+        for fileset in filesets:
+            if is_pi_fileset(fileset) and filesystem in fileset:
+                fileset_name = fileset.split(':')[1]
 
                 query = '{0} -j {1} -Y {2}'.format(quota_script, fileset_name, device)
                 if debug:
-                    pi_quota = subprocess.check_output([query], shell=True, encoding='UTF-8')
+                    result += subprocess.check_output([query], shell=True, encoding='UTF-8')
                 else:
-                    pi_quota = external_program_filter(query)
-                pi_quota = validate_gpfs_returned_values(pi_quota)
+                    result += external_program_filter(query)
 
-                output.append(parse_gpfs_mmrepquota_line(pi_quota.split('\n')[1], filesystem)[-1])
+        # make sure that result holds valid data
+        result = validate_gpfs_returned_values(result).split('\n')
 
-    return output
+        for line in result:
+            sort_gpfs_quota(line, filesystem, filesets, user, group, output)
 
-def cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output):
+    #read from flat file instead of gpfs query
+    else:
 
-    filename = filesystem + '/.mmrepquota/current'
+        filename = '/gpfs/'+filesystem + '/.mmrepquota/current'
 
-    if not os.path.exists(filename):
-         return output
+        if not os.path.exists(filename):
+             return output
 
-    with open(filename, 'r') as f:
-        f.readline()
-        for line in f:
-
-            if 'root' in line:
-                continue
-
-            fileset, name, quota = parse_gpfs_mmrepquota_line(line, filesystem)
-
-            if fileset in filesets:
-                if 'home' in fileset:
-                    if cluster == "grace":
-                        continue
-                    if 'USR' in line and name == user:
-                        place_output(output, quota)
-                    continue
-
-                if name == group['name']:
-                        place_output(output, quota)
-
-                elif is_pi_fileset(fileset, section=quota):
-                    output.append(quota)
+        with open(filename, 'r') as f:
+            for line in f:
+                sort_gpfs_quota(line, filesystem, filesets, user, group, output)
 
     return output
+
+def sort_gpfs_quota(line, filesystem, filesets, user, group, output):
+
+    # filter for just relevant rows
+    if 'HEADER' in line or 'root' in line or 'apps' in line or len(line) < 10:
+        return
+    if ('USR' in line and 'home' not in line):
+        return
+    if ('GRP' in line and ('scratch' not in line and 'project' not in line and 'work' not in line)):
+        return
+
+    quota = parse_gpfs_mmrepquota_line(line, filesystem)
+
+    if quota['fileset'] in filesets:
+        if (('home' in quota['fileset'] and quota['name'] == user) or quota['name'] == group['name']):
+            place_output(output, quota)
+
+        elif is_pi_fileset(quota['fileset']):
+            output.append(quota)
 
 ### VAST
 
-def cached_quota_data_vast(filesystem, user, group, cluster, output):
+def quota_data_vast(filesystem, user, group, cluster, output, is_live=False):
 
-    filenames = [filesystem + '/.quotas/current']
+    filenames = [vast_paths[filesystem] + '/.quotas/current']
     if cluster == 'mccleary':
-        filenames.append(filesystem + '/.quotas/mccleary_current')
+        filenames.append(vast_paths[filesystem] + '/.quotas/mccleary_current')
     if cluster == 'grace':
-        filenames.append(filesystem + '/.quotas/grace_current')
+        filenames.append(vast_paths[filesystem] + '/.quotas/grace_current')
 
     if user is not None:
         uid = str(pwd.getpwnam(user).pw_uid)
@@ -418,16 +384,16 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
             vast_quota_data = json.load(f)
 
             for this_quota in vast_quota_data:
+
                 if 'mccleary' in filename or 'grace' in filename:
-                    ### NOTE TO SELF: this used to be user in quota['entity_identifier'] but that was causing problems. 
-                    ### not sure why i used in, but noting in case the fix introduces new/old issues.
+
                     if user is not None and (user == this_quota['entity_identifier'] or uid == this_quota['entity_identifier']):
                         fileset = 'palmer:home.'+cluster
                         ### FIX: REPLACE used_effective_capacity instead of used_capacity
                         quota = {'fileset': fileset,
                                 'name': this_quota['entity_identifier'],
-                                'used_gb': this_quota['used_capacity']/1024/1024/1024,
-                                'quota_gb': this_quota['hard_limit']/1024/1024/1024,
+                                'used_gib': this_quota['used_capacity']/1024/1024/1024,
+                                'quota_gib': this_quota['hard_limit']/1024/1024/1024,
                                 'used_files': this_quota['used_inodes'],
                                 'quota_files': this_quota['hard_limit_inodes']
                                 }
@@ -441,11 +407,11 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
                         fileset, name = this_quota['name'].split(':')
                         if group['name'] == name:
                             if 'scratch' in fileset:
-                                fileset = prefix_filesystem(filesystem, fileset)
+                                fileset = filesystem+':'+fileset
                                 quota = {'fileset': fileset,
                                         'name': group['name'],
-                                        'used_gb': this_quota['used_effective_capacity']/1024/1024/1024,
-                                        'quota_gb': this_quota['hard_limit']/1024/1024/1024,
+                                        'used_gib': this_quota['used_effective_capacity']/1024/1024/1024,
+                                        'quota_gib': this_quota['hard_limit']/1024/1024/1024,
                                         'used_files': this_quota['used_inodes'],
                                         'quota_files': this_quota['hard_limit_inodes']
                                         }
@@ -455,8 +421,8 @@ def cached_quota_data_vast(filesystem, user, group, cluster, output):
                             elif fileset == 'pi':
                                 quota = {'fileset': 'palmer:pi_'+group['name'],
                                         'name': group['name'],
-                                        'used_gb': this_quota['used_effective_capacity']/1024/1024/1024,
-                                        'quota_gb': this_quota['hard_limit']/1024/1024/1024,
+                                        'used_gib': this_quota['used_effective_capacity']/1024/1024/1024,
+                                        'quota_gib': this_quota['hard_limit']/1024/1024/1024,
                                         'used_files': this_quota['used_inodes'],
                                         'quota_files': this_quota['hard_limit_inodes']
                                         }
@@ -473,19 +439,19 @@ def read_vast_line(line):
     split = line.split(',')
     data['group'] = split[0]
     data['user'] = split[1]
-    data['usage_TiB'] = int(split[3])/1024/1024/1024
+    data['usage_GiB'] = int(split[3])/1024/1024/1024
     data['usage_files'] = int(split[2])
 
     return data
 
-def read_user_details_vast(this_user, group, user_based_usage, user_filesets):
 
-    read_user_details_vast_scratch(group, user_based_usage, user_filesets)
-    read_user_details_vast_pi(this_user, group, user_based_usage, user_filesets)
+def read_user_details_vast(filesystem, this_user, group, user_based_usage, user_filesets):
+
+    read_user_details_vast_scratch(filesystem, group, user_based_usage, user_filesets)
+    read_user_details_vast_pi(filesystem, this_user, group, user_based_usage, user_filesets)
 
 
-
-def read_user_details_vast_scratch(group, user_based_usage, user_filesets):
+def read_user_details_vast_scratch(filesystem, group, user_based_usage, user_filesets):
 
     # scratch
     fileset = 'palmer:scratch'
@@ -503,19 +469,13 @@ def read_user_details_vast_scratch(group, user_based_usage, user_filesets):
             if data['group'] != group['name']:
                 continue
             else:
-                user_based_usage[fileset][data['user']] = {'fileset': fileset,
-                                                        'name': data['user'],
-                                                        'used_gb':  data['usage_TiB'],
-                                                        'quota_gb': '',
-                                                        'used_files':  data['usage_files'],
-                                                        'quota_files': ''
-                                                        }
-
-                # = [fileset, data['user'], '', data['usage_TiB'], '', data['usage_files'], '']
-
+                user_based_usage[fileset][data['user']] = {'used_gib':  data['usage_GiB'],
+                                                           'used_files':  data['usage_files'],
+                                                         }
                 user_filesets.add(fileset)
 
-def read_user_details_vast_pi(this_user, group, user_based_usage, user_filesets):
+
+def read_user_details_vast_pi(filesystem, this_user, group, user_based_usage, user_filesets):
 
     # pi filesets
     filename = '/vast/palmer/.quotas/pi.details'
@@ -532,45 +492,31 @@ def read_user_details_vast_pi(this_user, group, user_based_usage, user_filesets)
             if fileset not in user_based_usage.keys():
                     user_based_usage[fileset] = {}
 
-            user_based_usage[fileset][data['user']] = {#'fileset': fileset,
-                                         #           'name': data['user'],
-                                                    'used_gb':  data['usage_TiB'],
-                                                    'quota_gb': '',
-                                                    'used_files':  data['usage_files'],
-                                          #          'quota_files': ''
-                                                    }
-           # usage_details[fileset][data['user']] = [fileset, data['user'], '', data['usage_TiB'], '', data['usage_files'], '']
+            user_based_usage[fileset][data['user']] = {'used_gib':  data['usage_GiB'],
+                                                       'used_files':  data['usage_files'],
+                                                       }
 
             if user == this_user or (this_user is None and user in group['members']):
                 user_filesets.add(fileset)
-
-    # FIX: what is this used for???
-    allocations = []
-    for fileset in user_filesets:
-        if 'palmer:pi_' in fileset:
-            allocations.append(fileset.replace('palmer:pi_', ''))
 
 
 ## OVERALL USAGE AND QUOTA COLLECTION
 def collect_usage_details(filesystems, this_user, group, cluster):
 
-    global gpfs_device_names
-
     # collects all usage details for gpfs systems
-    usage_details = {}
+    user_based_usage = {}
     # collects list of all filesets and filesets where this_user has data
     user_filesets = set()
 
     for filesystem in filesystems:
-        if filesystem in gpfs_device_names.values():
+        if filesystem in gpfs_device_names.keys():
             read_mmrepquota_gpfs(filesystem, this_user, cluster, group,
                                  user_based_usage, user_filesets)
 
         elif filesystem in ['palmer', 'roberts', 'weston']:
-            if cluster in ['milgram', 'misha']:
-                pass
-            else:
-                read_user_details_vast(this_user, group, user_based_usage, user_filesets)
+            read_user_details_vast(filesystem, this_user, group, user_based_usage, user_filesets)
+        else:
+            print('Unknown filesystem, '+filesystem+', on '+cluster)
 
     return user_based_usage, list(user_filesets)
 
@@ -581,29 +527,29 @@ def collect_quota_data(filesets, filesystems, user, group, cluster, is_live):
     if debug:
         print("**Debug Output Enabled**")
 
-    global gpfs_device_names
-
     output = ['', '', '']
     for filesystem in filesystems:
         if filesystem in gpfs_device_names.values():
             if is_live:
                 if debug:
                     # if debug mode, force live query
-                    live_quota_data_gpfs(filesets, filesystem,
-                                         user, group, cluster, output)
+                    quota_data_gpfs(filesets, filesystem,
+                                    user, group, cluster, output, is_live=True)
                 else:
                     #if not debug mode, fail over silently
                     try:
-                        live_quota_data_gpfs(filesets, filesystem,
-                                             user, group, cluster, output)
+                        quota_data_gpfs(filesets, filesystem,
+                                             user, group, cluster, output, is_live=True)
                     except:
                         is_live = False
-                        cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output)
+                        quota_data_gpfs(filesets, filesystem,
+                                             user, group, cluster, output, is_live=False)
             else:
-                cached_quota_data_gpfs(filesystem, filesets, user, group, cluster, output)
+                quota_data_gpfs(filesets, filesystem, user, group, cluster, output, is_live=False)
+
         elif filesystem in ['palmer', 'roberts', 'weston']:
             # vast doesn't (yet?) return live data so just return cached data
-             cached_quota_data_vast(filesystem, user, group, cluster, output)
+             quota_data_vast(filesystem, user, group, cluster, output)
 
     if is_live:
         file = open('/tmp/.%sgqlc' % user, 'wb')
@@ -614,29 +560,31 @@ def collect_quota_data(filesets, filesystems, user, group, cluster, is_live):
 
 ## USER BREAKDOWN ##
 def compile_usage_details(filesets, group, user_based_usage):
-    output = ['', '', '']
+    output = ['', '']
 
     for fileset in sorted(filesets):
         section = []
 
         if is_pi_fileset(fileset):
-            for user in sorted(data[fileset].keys()):
+            for user in sorted(user_based_usage[fileset].keys()):
                 section.append(format_for_details(fileset, user, user_based_usage[fileset][user]))
             output.append('\n'.join(section))
 
         else:
             for group_member in sorted(group['members']):
-                if group_member not in data[fileset].keys():
+                if group_member not in user_based_usage[fileset].keys():
                     continue
                 else:
-                    section.append(format_for_details(fileset, user, user_based_usage[fileset][group_member]))
-        place_output(output, '\n'.join(section))
+                    section.append(format_for_details(fileset, group_member, user_based_usage[fileset][group_member]))
 
-    # don't show home data
-    output.pop(0)
-    for i in range(len(output)-1):
-        if len(output[i]) == 0:
-            output.pop(i)
+        section = '\n'.join(section)
+
+        if 'project' in section:
+            output[0] = section
+        elif 'scratch' in section:
+            output[1] = section
+        elif 'work' in section:
+            output.append(section)
 
     return '\n----\n'.join(output)
 
@@ -647,7 +595,7 @@ def format_for_details(fileset, user, user_based_usage):
 
     # fileset, user, bytes, file count
     return '{0:30.29}{1:14.13}{2:10.0f}{3:14,}'.format(fileset, user,
-                                             user_based_usage['used_gb'], user_based_usage['used_files'])
+                                             user_based_usage['used_gib'], user_based_usage['used_files'])
 
 
 def format_for_summary(quotas, cluster):
@@ -671,7 +619,7 @@ def format_for_summary(quotas, cluster):
 
     # fileset, userid, quota_type, bytes, byte quota, file count, file limit
     return '{0:30.29}{1:8}{2:12.0f}{3:12.0f}{4:14,}{5:14,} {6:10}{7:10}'.format(fileset, type,
-                                                                       quotas['used_gb'], quotas['quota_gb'],
+                                                                       quotas['used_gib'], quotas['quota_gib'],
                                                                        quotas['used_files'], quotas['quota_files'],
                                                                        backup, purge)
 
@@ -683,12 +631,12 @@ def check_limits(summary_data):
                 'file': 0}
 
     # if you can, avoid the possiblity of dividing by zero
-    if summary_data['quota_gb'] == 0:
+    if summary_data['quota_gib'] == 0:
         return at_limit
     if summary_data['quota_files'] == 0:
         return at_limit
 
-    if (summary_data['quota_gb']-summary_data['used_gb'])/float(summary_data['quota_gb']) <= 0.05:
+    if (summary_data['quota_gib']-summary_data['used_gib'])/float(summary_data['quota_gib']) <= 0.05:
         at_limit['byte'] = True
     if (summary_data['quota_files']-summary_data['used_files'])/float(summary_data['quota_files']) <= 0.05:
         at_limit['file'] = True
@@ -719,7 +667,7 @@ def get_quota_status(summary_data):
         if summary:
             at_limit = check_limits(summary)
             if at_limit['byte']:
-                warnings.append([summary_data['fileset'], summary_data['used_gb'], summary_data['quota_gb']])
+                warnings.append([summary_data['fileset'], summary_data['used_gib'], summary_data['quota_gib']])
             if at_limit['file']:
                 warnings.append([summary_data['fileset'], summary_data['used_files'], summary_data['quota_files']])
     print(warnings)
@@ -767,47 +715,6 @@ def print_cli_output(details_data, summary_data, group, timestamp, is_live, clus
         print('\n'.join(warnings))
         print('!!!!!!!!!!!!!!!!!!!!!!!!!!!')
 
-
-def print_email_output(details_data, summary_data, group, timestamp, cluster):
-
-    header = "Our system has detected that you are approaching or have hit a \n"
-    header += "storage quota on {0}.\n".format(cluster)
-    header += "See below for details on your usage."
-
-    print(header)
-
-    warnings = []
-    for summary in summary_data:
-        if summary:
-            warnings += limits_warnings(summary)
-
-    if len(warnings):
-        print('\n'.join(warnings))
-
-    time = datetime.now().strftime("%b %d %Y, %H:%M:%S")
-
-    summary_header = '\n## Quota Summary for {0} (as of {1})\n'.format(group['name'], time)
-    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}\n'.format('Fileset', 'Type', 'Usage (GiB)',
-                                                                                 ' Quota (GiB)', ' File Count',
-                                                                                 ' File Limit', ' Backup', ' Purged')
-    summary_header += '{0:23}{1:8}{2:12}{3:12}{4:14}{5:14}{6:10}{7:10}'.format('-'*22, '-'*7, '-'*12,
-                                                                               ' '+'-'*11, ' '+'-'*13, ' '+'-'*13,
-                                                                               ' '+'-'*9, ' '+'-'*9)
-
-    print(summary_header)
-    for summary in summary_data:
-        if summary:
-            print(format_for_summary(summary, cluster))
-
-    print('\n')
-
-    details_header = '## Usage Details for {0} (as of {1})\n'.format(group['name'], timestamp)
-    details_header += '{0:23}{1:6}{2:10}{3:14}\n'.format('Fileset', 'User', 'Usage (GiB)', ' File Count')
-    details_header += '{0:23}{1:6}{2:10}{3:14}'.format('-'*22, '-'*5, '-'*10, ' '+'-'*13)
-
-    print(details_header)
-    print(details_data)
-
 ### MAIN ###
 
 if (__name__ == '__main__'):
@@ -817,28 +724,25 @@ if (__name__ == '__main__'):
     group['name'] = grp.getgrgid(group['id']).gr_name
 
     filesystems = {
-                   'grace': ['/gpfs/gibbs', '/vast/palmer'],
-                   'mccleary': ['/gpfs/gibbs', '/vast/palmer'],
-                   'milgram': ['/gpfs/milgram'],
-                   'misha': ['/gpfs/radev'],
-                   'gibbs': ['/gpfs/gibbs']
+                   'grace': ['gibbs', 'palmer'],
+                   'mccleary': ['gibbs', 'palmer'],
+                   'milgram': ['milgram'],
+                   'misha': ['radev'],
                    }
 
     # check if user in ycga group
     if cluster in ['mccleary'] and 10266 in os.getgroups():
-        filesystems[cluster].append('/gpfs/ycga')
-
-
+        filesystems[cluster].append('ycga')
+    
     # usage details
-    timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime(filesystems[cluster][0]
+    timestamp = time.strftime('%b %d %Y %H:%M', time.localtime(os.path.getmtime('/gpfs/'+filesystems[cluster][0]
                                                                                 + '/.mmrepquota/current')))
 
     get_group_members(group, cluster)
 
     user_based_usage, user_filesets = collect_usage_details(filesystems[cluster], user,
                                                                group, cluster)
-
-    add_missing_pi_filesets(user_filesets, group)
+    # add_missing_pi_filesets(user_filesets, group) # CURRENTLY BROKEN 
     
     details_data = compile_usage_details(user_filesets, group, user_based_usage)
     
